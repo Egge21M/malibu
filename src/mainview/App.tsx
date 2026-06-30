@@ -24,6 +24,14 @@ import {
 } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+	Card,
+	CardAction,
+	CardContent,
+	CardDescription,
+	CardHeader,
+	CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -349,23 +357,27 @@ function App() {
 
 	return (
 		<div className="min-h-svh bg-background text-foreground">
-			<header className="flex min-h-16 flex-col gap-3 border-b bg-background/95 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+			<header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">
+				<div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
 				<div className="flex min-w-0 items-center gap-3">
-					<div className="flex size-9 shrink-0 items-center justify-center border bg-primary text-primary-foreground">
+					<div className="flex size-10 shrink-0 items-center justify-center border bg-primary text-primary-foreground shadow-sm">
 						<Wallet className="size-4" />
 					</div>
 					<div className="min-w-0">
-						<h1 className="truncate text-lg font-semibold tracking-wide">
-							Malibu Cashu Wallet
+						<h1 className="truncate text-base font-semibold tracking-wider uppercase">
+							Malibu
 						</h1>
 						<p className="truncate text-xs text-muted-foreground">
-							Coco core on Bun, React renderer
+							Private Cashu wallet powered by Coco
 						</p>
 					</div>
 				</div>
-				<div className="flex items-center gap-2">
+				<div className="flex flex-wrap items-center gap-2">
+					<Badge variant={snapshot ? "default" : "secondary"}>
+						{snapshot ? "connected" : "connecting"}
+					</Badge>
 					<Badge variant={trustedMints.length ? "default" : "secondary"}>
-						{trustedMints.length} trusted
+						{trustedMints.length} trusted mints
 					</Badge>
 					<Button
 						type="button"
@@ -378,49 +390,62 @@ function App() {
 						Refresh
 					</Button>
 				</div>
+				</div>
 			</header>
 
-			<main className="grid min-h-[calc(100svh-4rem)] grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)]">
-				<aside className="border-b lg:border-r lg:border-b-0">
-					<section className="space-y-4 border-b p-5">
-						<div className="flex items-center justify-between gap-3">
-							<div>
-								<h2 className="text-sm font-semibold tracking-wider uppercase">
-									Balance
-								</h2>
-								<p className="text-xs text-muted-foreground">
-									Spendable and reserved proofs
-								</p>
-							</div>
-							<Activity className="size-4 text-muted-foreground" />
-						</div>
-						<div className="space-y-3">
+			<main className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[340px_minmax(0,1fr)] lg:py-7">
+				{status ? (
+					<div className="lg:col-span-2">
+						<StatusAlert status={status} />
+					</div>
+				) : null}
+
+				<aside className="space-y-4">
+					<Card className="border-0 bg-foreground text-background ring-0">
+						<CardHeader>
+							<CardTitle className="flex items-center gap-2 text-background">
+								<Activity className="size-4" />
+								Balance
+							</CardTitle>
+							<CardDescription className="text-background/65">
+								Spendable and reserved proofs
+							</CardDescription>
+						</CardHeader>
+						<CardContent className="space-y-4">
+						<div className="space-y-4">
 							{totals.map((total) => (
-								<div key={total.unit} className="border-l-2 border-emerald-500 pl-3">
-									<div className="flex items-baseline gap-2">
-										<span className="text-3xl font-semibold tabular-nums">
+								<div key={total.unit} className="border-l-2 border-background/35 pl-3">
+									<div className="flex min-w-0 items-baseline gap-2">
+										<span className="truncate text-4xl font-semibold tracking-normal tabular-nums">
 											{formatAmount(total.spendable)}
 										</span>
-										<span className="text-xs font-semibold uppercase text-muted-foreground">
+										<span className="text-xs font-semibold uppercase text-background/60">
 											{total.unit}
 										</span>
 									</div>
-									<div className="mt-1 flex gap-3 text-xs text-muted-foreground">
+									<div className="mt-2 flex flex-wrap gap-3 text-xs text-background/60">
 										<span>total {formatAmount(total.total)}</span>
 										<span>reserved {formatAmount(total.reserved)}</span>
 									</div>
 								</div>
 							))}
 						</div>
-					</section>
+						</CardContent>
+					</Card>
 
-					<section className="space-y-4 border-b p-5">
-						<div className="flex items-center justify-between">
-							<h2 className="text-sm font-semibold tracking-wider uppercase">
+					<Card size="sm">
+						<CardHeader>
+							<CardTitle className="flex items-center gap-2 text-sm">
+								<ShieldCheck className="size-4" />
 								Mints
-							</h2>
-							<ShieldCheck className="size-4 text-muted-foreground" />
-						</div>
+							</CardTitle>
+							<CardAction>
+								<Badge variant={trustedMints.length ? "default" : "secondary"}>
+									{trustedMints.length} trusted
+								</Badge>
+							</CardAction>
+						</CardHeader>
+						<CardContent className="space-y-4">
 						<form className="space-y-3" onSubmit={handleAddMint}>
 							<Field label="Mint URL">
 								<Input
@@ -458,12 +483,12 @@ function App() {
 							</Button>
 						</form>
 
-						<div className="space-y-2">
+						<div className="space-y-3">
 							{snapshot?.mints.length ? (
 								snapshot.mints.map((mint) => (
 									<div
 										key={mint.mintUrl}
-										className="grid gap-1 border-t py-3 first:border-t-0 first:pt-0"
+										className="grid gap-1 border-l-2 border-primary/70 pl-3"
 									>
 										<div className="flex min-w-0 items-center justify-between gap-2">
 											<span className="truncate text-sm font-medium">
@@ -482,65 +507,92 @@ function App() {
 								<EmptyState label="No mints" />
 							)}
 						</div>
-					</section>
+						</CardContent>
+					</Card>
 
-					<section className="space-y-3 p-5">
-						<div className="flex items-center justify-between">
-							<h2 className="text-sm font-semibold tracking-wider uppercase">
+					<Card size="sm">
+						<CardHeader>
+							<CardTitle className="flex items-center gap-2 text-sm">
+								<Database className="size-4" />
 								Storage
-							</h2>
-							<Database className="size-4 text-muted-foreground" />
-						</div>
+							</CardTitle>
+						</CardHeader>
+						<CardContent>
 						<p className="break-all text-xs leading-relaxed text-muted-foreground">
 							{snapshot?.dataDir ?? "Waiting for wallet bridge"}
 						</p>
-					</section>
+						</CardContent>
+					</Card>
 				</aside>
 
-				<section className="min-w-0 p-5">
-					<div className="mx-auto flex max-w-6xl flex-col gap-5">
-						{status ? <StatusAlert status={status} /> : null}
-
-						<div className="grid gap-3 border-b pb-5 sm:grid-cols-2 xl:grid-cols-3">
+				<section className="min-w-0">
+					<div className="flex flex-col gap-5">
+						<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
 							{snapshot?.balances.length ? (
 								snapshot.balances.map((balance) => (
-									<div
+									<Card
 										key={`${balance.mintUrl}:${balance.unit}`}
-										className="min-w-0 border-l pl-3"
+										size="sm"
+										className="min-w-0"
 									>
-										<div className="flex items-baseline gap-2">
-											<span className="text-xl font-semibold tabular-nums">
-												{formatAmount(balance.spendable)}
-											</span>
-											<span className="text-xs font-semibold uppercase text-muted-foreground">
-												{balance.unit}
-											</span>
-										</div>
-										<p className="truncate text-xs text-muted-foreground">
-											{balance.mintUrl}
-										</p>
-									</div>
+										<CardContent className="min-w-0">
+											<div className="flex items-baseline gap-2">
+												<span className="text-xl font-semibold tabular-nums">
+													{formatAmount(balance.spendable)}
+												</span>
+												<span className="text-xs font-semibold uppercase text-muted-foreground">
+													{balance.unit}
+												</span>
+											</div>
+											<p className="mt-1 truncate text-xs text-muted-foreground">
+												{balance.mintUrl}
+											</p>
+										</CardContent>
+									</Card>
 								))
 							) : (
 								<EmptyState label="No balance entries" />
 							)}
 						</div>
 
+						<Card>
+							<CardHeader>
+								<CardTitle>Wallet Actions</CardTitle>
+								<CardDescription>
+									Mint ecash, send tokens, receive proofs, and pay Lightning invoices.
+								</CardDescription>
+							</CardHeader>
+							<CardContent>
 						<Tabs defaultValue="mint" className="gap-5">
-							<TabsList variant="line" className="w-full justify-start overflow-x-auto">
-								<TabsTrigger value="mint">
+							<TabsList
+								variant="default"
+								className="grid h-10 w-full grid-cols-4 gap-1 sm:inline-flex sm:justify-start sm:overflow-x-auto"
+							>
+								<TabsTrigger
+									value="mint"
+									className="h-8 gap-1 px-1 text-[0.625rem] sm:h-10 sm:px-4 sm:text-xs"
+								>
 									<Download />
 									Mint
 								</TabsTrigger>
-								<TabsTrigger value="send">
+								<TabsTrigger
+									value="send"
+									className="h-8 gap-1 px-1 text-[0.625rem] sm:h-10 sm:px-4 sm:text-xs"
+								>
 									<Send />
 									Send
 								</TabsTrigger>
-								<TabsTrigger value="receive">
+								<TabsTrigger
+									value="receive"
+									className="h-8 gap-1 px-1 text-[0.625rem] sm:h-10 sm:px-4 sm:text-xs"
+								>
 									<Check />
 									Receive
 								</TabsTrigger>
-								<TabsTrigger value="melt">
+								<TabsTrigger
+									value="melt"
+									className="h-8 gap-1 px-1 text-[0.625rem] sm:h-10 sm:px-4 sm:text-xs"
+								>
 									<Zap />
 									Melt
 								</TabsTrigger>
@@ -819,6 +871,8 @@ function App() {
 								</div>
 							</TabsContent>
 						</Tabs>
+							</CardContent>
+						</Card>
 
 						<Separator />
 
@@ -849,11 +903,11 @@ function App() {
 									</h2>
 									<Badge variant="secondary">{history.length}</Badge>
 								</div>
-								<div className="max-h-[28rem] overflow-y-auto border">
+								<div className="grid max-h-[30rem] gap-3 overflow-y-auto pr-1">
 									{history.length ? (
 										history.map((entry) => (
-											<div key={entry.id} className="border-b p-3 last:border-b-0">
-												<div className="flex items-center justify-between gap-3">
+											<Card key={entry.id} size="sm">
+												<CardContent className="flex items-center justify-between gap-3">
 													<div className="min-w-0">
 														<div className="flex items-center gap-2">
 															<Badge>{entry.type}</Badge>
@@ -873,8 +927,8 @@ function App() {
 															{formatDate(entry.updatedAt)}
 														</div>
 													</div>
-												</div>
-											</div>
+												</CardContent>
+											</Card>
 										))
 									) : (
 										<EmptyState label="No history" />
@@ -1035,9 +1089,10 @@ function OperationList({
 	}
 
 	return (
-		<div className="max-h-[28rem] overflow-y-auto border">
+		<div className="grid max-h-[30rem] gap-3 overflow-y-auto pr-1">
 			{operations.map((operation) => (
-				<div key={`${operation.type}:${operation.id}`} className="border-b p-3 last:border-b-0">
+				<Card key={`${operation.type}:${operation.id}`} size="sm">
+					<CardContent>
 					<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 						<div className="min-w-0">
 							<div className="flex flex-wrap items-center gap-2">
@@ -1106,7 +1161,8 @@ function OperationList({
 							) : null}
 						</div>
 					</div>
-				</div>
+					</CardContent>
+				</Card>
 			))}
 		</div>
 	);
