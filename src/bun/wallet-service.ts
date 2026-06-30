@@ -315,6 +315,10 @@ export class CashuWalletService {
 		this.managerPromise = undefined;
 	}
 
+	async getCocoManager(): Promise<Manager> {
+		return this.getManager();
+	}
+
 	private async withSnapshot<TData>(
 		data: TData,
 	): Promise<WalletActionResult<TData>> {
