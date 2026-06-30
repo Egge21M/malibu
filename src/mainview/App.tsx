@@ -6,16 +6,25 @@ import {
 	Database,
 	Download,
 	History,
+	Home,
 	Landmark,
 	Plus,
 	RefreshCw,
 	RotateCcw,
 	Send,
+	Settings,
 	ShieldCheck,
 	Wallet,
 	X,
 	Zap,
 } from "lucide-react";
+import {
+	HashRouter,
+	NavLink,
+	Navigate,
+	Route,
+	Routes,
+} from "react-router";
 
 import {
 	Alert,
@@ -34,7 +43,6 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import {
 	Select,
 	SelectContent,
@@ -42,17 +50,14 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import {
-	Tabs,
-	TabsContent,
-	TabsList,
-	TabsTrigger,
-} from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { walletClient } from "@/lib/wallet-client";
 import type {
+	BalanceSnapshotDto,
 	MintDto,
 	WalletActionResult,
+	WalletHistoryDto,
 	WalletOperationDto,
 	WalletQuoteDto,
 	WalletSnapshot,
@@ -64,12 +69,87 @@ type StatusState = {
 	message?: string;
 } | null;
 
+type WalletViewContext = {
+	snapshot: WalletSnapshot | null;
+	status: StatusState;
+	busy: string | null;
+	trustedMints: MintDto[];
+	totals: BalanceSnapshotDto[];
+	operations: WalletOperationDto[];
+	history: WalletHistoryDto[];
+	mintUrl: string;
+	setMintUrl: (value: string) => void;
+	quoteMintUrl: string;
+	setQuoteMintUrl: (value: string) => void;
+	quoteAmount: string;
+	setQuoteAmount: (value: string) => void;
+	quoteUnit: string;
+	setQuoteUnit: (value: string) => void;
+	sendMintUrl: string;
+	setSendMintUrl: (value: string) => void;
+	sendAmount: string;
+	setSendAmount: (value: string) => void;
+	sendUnit: string;
+	setSendUnit: (value: string) => void;
+	sendMemo: string;
+	setSendMemo: (value: string) => void;
+	receiveToken: string;
+	setReceiveToken: (value: string) => void;
+	meltMintUrl: string;
+	setMeltMintUrl: (value: string) => void;
+	meltInvoice: string;
+	setMeltInvoice: (value: string) => void;
+	meltUnit: string;
+	setMeltUnit: (value: string) => void;
+	lastMintQuote: WalletQuoteDto | null;
+	lastMintOperation: WalletOperationDto | null;
+	preparedSend: WalletOperationDto | null;
+	resultToken: string;
+	preparedReceive: WalletOperationDto | null;
+	preparedMelt: WalletOperationDto | null;
+	loadSnapshot: () => Promise<void>;
+	handleAddMint: (event: React.FormEvent<HTMLFormElement>) => void;
+	handlePreviewMint: () => void;
+	handleRestoreMint: () => void;
+	handleCreateMintQuote: (event: React.FormEvent<HTMLFormElement>) => void;
+	handleRefreshMintOperation: (operationId: string) => void;
+	handlePrepareSend: (event: React.FormEvent<HTMLFormElement>) => void;
+	handleExecuteSend: (operationId: string) => void;
+	handleCancelSend: (operationId: string) => void;
+	handlePrepareReceive: (event: React.FormEvent<HTMLFormElement>) => void;
+	handleExecuteReceive: (operationId: string) => void;
+	handleCancelReceive: (operationId: string) => void;
+	handlePrepareMelt: (event: React.FormEvent<HTMLFormElement>) => void;
+	handleExecuteMelt: (operationId: string) => void;
+	handleCancelMelt: (operationId: string) => void;
+	handleRefreshMeltOperation: (operationId: string) => void;
+	handleOperationAction: (operation: WalletOperationDto) => void;
+};
+
+type RouteItem = {
+	path: string;
+	label: string;
+	icon: React.ComponentType<{ className?: string }>;
+};
+
+const WalletContext = React.createContext<WalletViewContext | null>(null);
+
 const ZERO_TOTAL = {
 	unit: "sat",
 	spendable: "0",
 	reserved: "0",
 	total: "0",
 };
+
+const PRIMARY_ROUTES: RouteItem[] = [
+	{ path: "/", label: "Overview", icon: Home },
+	{ path: "/mint", label: "Mint", icon: Download },
+	{ path: "/send", label: "Send", icon: Send },
+	{ path: "/receive", label: "Receive", icon: Check },
+	{ path: "/melt", label: "Melt", icon: Zap },
+	{ path: "/activity", label: "Activity", icon: History },
+	{ path: "/settings", label: "Settings", icon: Settings },
+];
 
 function App() {
 	const [snapshot, setSnapshot] = React.useState<WalletSnapshot | null>(null);
@@ -206,6 +286,15 @@ function App() {
 		);
 	}
 
+	function handleRefreshMintOperation(operationId: string) {
+		void runAction(
+			`mint:${operationId}`,
+			() => walletClient.refreshMintOperation({ operationId }),
+			"Mint checked",
+			(data) => setLastMintOperation(data),
+		);
+	}
+
 	function handlePrepareSend(event: React.FormEvent<HTMLFormElement>) {
 		event.preventDefault();
 		void runAction(
@@ -306,14 +395,18 @@ function App() {
 		);
 	}
 
+	function handleRefreshMeltOperation(operationId: string) {
+		void runAction(
+			`melt:${operationId}`,
+			() => walletClient.refreshMeltOperation({ operationId }),
+			"Melt refreshed",
+			(data) => setPreparedMelt(data),
+		);
+	}
+
 	function handleOperationAction(operation: WalletOperationDto) {
 		if (operation.type === "mint") {
-			void runAction(
-				`mint:${operation.id}`,
-				() => walletClient.refreshMintOperation({ operationId: operation.id }),
-				"Mint checked",
-				(data) => setLastMintOperation(data),
-			);
+			handleRefreshMintOperation(operation.id);
 			return;
 		}
 
@@ -342,603 +435,971 @@ function App() {
 		}
 
 		if (operation.type === "melt") {
-			void runAction(
-				`melt:${operation.id}`,
-				() => walletClient.refreshMeltOperation({ operationId: operation.id }),
-				"Melt refreshed",
-				(data) => setPreparedMelt(data),
-			);
+			handleRefreshMeltOperation(operation.id);
 		}
 	}
 
 	const totals = snapshot?.totalByUnit.length ? snapshot.totalByUnit : [ZERO_TOTAL];
 	const operations = snapshot?.operations ?? [];
 	const history = snapshot?.history ?? [];
+	const wallet = React.useMemo<WalletViewContext>(
+		() => ({
+			snapshot,
+			status,
+			busy,
+			trustedMints,
+			totals,
+			operations,
+			history,
+			mintUrl,
+			setMintUrl,
+			quoteMintUrl,
+			setQuoteMintUrl,
+			quoteAmount,
+			setQuoteAmount,
+			quoteUnit,
+			setQuoteUnit,
+			sendMintUrl,
+			setSendMintUrl,
+			sendAmount,
+			setSendAmount,
+			sendUnit,
+			setSendUnit,
+			sendMemo,
+			setSendMemo,
+			receiveToken,
+			setReceiveToken,
+			meltMintUrl,
+			setMeltMintUrl,
+			meltInvoice,
+			setMeltInvoice,
+			meltUnit,
+			setMeltUnit,
+			lastMintQuote,
+			lastMintOperation,
+			preparedSend,
+			resultToken,
+			preparedReceive,
+			preparedMelt,
+			loadSnapshot,
+			handleAddMint,
+			handlePreviewMint,
+			handleRestoreMint,
+			handleCreateMintQuote,
+			handleRefreshMintOperation,
+			handlePrepareSend,
+			handleExecuteSend,
+			handleCancelSend,
+			handlePrepareReceive,
+			handleExecuteReceive,
+			handleCancelReceive,
+			handlePrepareMelt,
+			handleExecuteMelt,
+			handleCancelMelt,
+			handleRefreshMeltOperation,
+			handleOperationAction,
+		}),
+		[
+			snapshot,
+			status,
+			busy,
+			trustedMints,
+			totals,
+			operations,
+			history,
+			mintUrl,
+			quoteMintUrl,
+			quoteAmount,
+			quoteUnit,
+			sendMintUrl,
+			sendAmount,
+			sendUnit,
+			sendMemo,
+			receiveToken,
+			meltMintUrl,
+			meltInvoice,
+			meltUnit,
+			lastMintQuote,
+			lastMintOperation,
+			preparedSend,
+			resultToken,
+			preparedReceive,
+			preparedMelt,
+			loadSnapshot,
+		],
+	);
+
+	return (
+		<WalletContext.Provider value={wallet}>
+			<HashRouter>
+				<WalletShell />
+			</HashRouter>
+		</WalletContext.Provider>
+	);
+}
+
+function WalletShell() {
+	const wallet = useWallet();
 
 	return (
 		<div className="min-h-svh bg-background text-foreground">
-			<header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">
-				<div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-				<div className="flex min-w-0 items-center gap-3">
-					<div className="flex size-10 shrink-0 items-center justify-center border bg-primary text-primary-foreground shadow-sm">
-						<Wallet className="size-4" />
+			<header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur">
+				<div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+					<div className="flex min-w-0 items-center gap-3">
+						<div className="flex size-10 shrink-0 items-center justify-center border bg-primary text-primary-foreground shadow-sm">
+							<Wallet className="size-4" />
+						</div>
+						<div className="min-w-0">
+							<h1 className="truncate text-base font-semibold tracking-wider uppercase">
+								Malibu
+							</h1>
+							<p className="hidden truncate text-xs text-muted-foreground sm:block">
+								Private Cashu wallet powered by Coco
+							</p>
+						</div>
 					</div>
-					<div className="min-w-0">
-						<h1 className="truncate text-base font-semibold tracking-wider uppercase">
-							Malibu
-						</h1>
-						<p className="truncate text-xs text-muted-foreground">
-							Private Cashu wallet powered by Coco
-						</p>
+					<div className="flex shrink-0 items-center gap-2">
+						<Badge variant={wallet.snapshot ? "default" : "secondary"}>
+							{wallet.snapshot ? "connected" : "connecting"}
+						</Badge>
+						<Badge
+							variant={wallet.trustedMints.length ? "default" : "secondary"}
+							className="hidden sm:inline-flex"
+						>
+							{wallet.trustedMints.length} trusted mints
+						</Badge>
+						<Button
+							type="button"
+							variant="outline"
+							size="icon-sm"
+							aria-label="Refresh wallet"
+							disabled={wallet.busy !== null}
+							onClick={() => void wallet.loadSnapshot()}
+						>
+							<RefreshCw
+								className={wallet.busy === "snapshot" ? "animate-spin" : ""}
+							/>
+						</Button>
 					</div>
 				</div>
-				<div className="flex flex-wrap items-center gap-2">
-					<Badge variant={snapshot ? "default" : "secondary"}>
-						{snapshot ? "connected" : "connecting"}
-					</Badge>
-					<Badge variant={trustedMints.length ? "default" : "secondary"}>
-						{trustedMints.length} trusted mints
-					</Badge>
+			</header>
+
+			<div className="mx-auto grid max-w-7xl gap-5 px-4 py-5 pb-24 sm:px-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:py-7 lg:pb-7">
+				<aside className="hidden lg:block">
+					<DesktopNav />
+				</aside>
+				<main className="min-w-0 space-y-5">
+					{wallet.status ? <StatusAlert status={wallet.status} /> : null}
+					<Routes>
+						<Route index element={<OverviewScreen />} />
+						<Route path="mint" element={<MintScreen />} />
+						<Route path="send" element={<SendScreen />} />
+						<Route path="receive" element={<ReceiveScreen />} />
+						<Route path="melt" element={<MeltScreen />} />
+						<Route path="activity" element={<ActivityScreen />} />
+						<Route path="settings" element={<SettingsScreen />} />
+						<Route path="*" element={<Navigate to="/" replace />} />
+					</Routes>
+				</main>
+			</div>
+
+			<MobileNav />
+		</div>
+	);
+}
+
+function DesktopNav() {
+	const wallet = useWallet();
+
+	return (
+		<nav className="sticky top-24 space-y-4">
+			<Card size="sm" className="border-0 bg-foreground text-background ring-0">
+				<CardHeader>
+					<CardTitle className="flex items-center gap-2 text-background">
+						<Activity className="size-4" />
+						Balance
+					</CardTitle>
+					<CardDescription className="text-background/65">
+						Spendable proofs
+					</CardDescription>
+				</CardHeader>
+				<CardContent className="space-y-4">
+					{wallet.totals.map((total) => (
+						<div
+							key={total.unit}
+							className="border-l-2 border-background/35 pl-3"
+						>
+							<div className="flex min-w-0 items-baseline gap-2">
+								<span className="truncate text-3xl font-semibold tabular-nums">
+									{formatAmount(total.spendable)}
+								</span>
+								<span className="text-xs font-semibold uppercase text-background/60">
+									{total.unit}
+								</span>
+							</div>
+							<div className="mt-2 flex flex-wrap gap-3 text-xs text-background/60">
+								<span>total {formatAmount(total.total)}</span>
+								<span>reserved {formatAmount(total.reserved)}</span>
+							</div>
+						</div>
+					))}
+				</CardContent>
+			</Card>
+			<div className="grid gap-1">
+				{PRIMARY_ROUTES.map((route) => (
+					<NavItem key={route.path} route={route} />
+				))}
+			</div>
+		</nav>
+	);
+}
+
+function MobileNav() {
+	return (
+		<nav className="fixed inset-x-0 bottom-0 z-20 border-t bg-background/95 px-2 py-2 backdrop-blur lg:hidden">
+			<div className="mx-auto grid max-w-lg grid-cols-7 gap-1">
+				{PRIMARY_ROUTES.map((route) => (
+					<NavItem key={route.path} route={route} compact />
+				))}
+			</div>
+		</nav>
+	);
+}
+
+function NavItem({
+	route,
+	compact = false,
+}: {
+	route: RouteItem;
+	compact?: boolean;
+}) {
+	const Icon = route.icon;
+
+	return (
+		<NavLink
+			to={route.path}
+			end={route.path === "/"}
+			title={route.label}
+			aria-label={route.label}
+			className={({ isActive }) =>
+				cn(
+					"flex min-w-0 items-center gap-2 border px-3 py-2 text-xs font-semibold tracking-wider uppercase transition-colors",
+					compact && "h-12 justify-center px-1 py-1",
+					isActive
+						? "border-primary bg-primary text-primary-foreground"
+						: "border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground",
+				)
+			}
+		>
+			<Icon className="size-4 shrink-0" />
+			<span className={compact ? "sr-only" : "truncate"}>{route.label}</span>
+		</NavLink>
+	);
+}
+
+function OverviewScreen() {
+	const wallet = useWallet();
+	const recentHistory = wallet.history.slice(0, 5);
+	const activeOperations = wallet.operations.slice(0, 4);
+
+	return (
+		<div className="grid gap-5">
+			<PageHeader
+				icon={Home}
+				title="Overview"
+				description="Balance, active work, and recent wallet movement."
+				action={
 					<Button
 						type="button"
 						variant="outline"
 						size="sm"
-						disabled={busy !== null}
-						onClick={() => void loadSnapshot()}
+						disabled={wallet.busy !== null}
+						onClick={() => void wallet.loadSnapshot()}
 					>
-						<RefreshCw className={busy === "snapshot" ? "animate-spin" : ""} />
+						<RefreshCw
+							className={wallet.busy === "snapshot" ? "animate-spin" : ""}
+						/>
 						Refresh
 					</Button>
-				</div>
-				</div>
-			</header>
+				}
+			/>
 
-			<main className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[340px_minmax(0,1fr)] lg:py-7">
-				{status ? (
-					<div className="lg:col-span-2">
-						<StatusAlert status={status} />
-					</div>
-				) : null}
-
-				<aside className="space-y-4">
-					<Card className="border-0 bg-foreground text-background ring-0">
-						<CardHeader>
-							<CardTitle className="flex items-center gap-2 text-background">
-								<Activity className="size-4" />
-								Balance
-							</CardTitle>
-							<CardDescription className="text-background/65">
-								Spendable and reserved proofs
-							</CardDescription>
-						</CardHeader>
-						<CardContent className="space-y-4">
-						<div className="space-y-4">
-							{totals.map((total) => (
-								<div key={total.unit} className="border-l-2 border-background/35 pl-3">
-									<div className="flex min-w-0 items-baseline gap-2">
-										<span className="truncate text-4xl font-semibold tracking-normal tabular-nums">
-											{formatAmount(total.spendable)}
-										</span>
-										<span className="text-xs font-semibold uppercase text-background/60">
-											{total.unit}
-										</span>
-									</div>
-									<div className="mt-2 flex flex-wrap gap-3 text-xs text-background/60">
-										<span>total {formatAmount(total.total)}</span>
-										<span>reserved {formatAmount(total.reserved)}</span>
-									</div>
+			<div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)]">
+				<Card className="border-0 bg-foreground text-background ring-0">
+					<CardHeader>
+						<CardTitle className="text-background">Wallet balance</CardTitle>
+						<CardDescription className="text-background/65">
+							Spendable and reserved proofs by unit
+						</CardDescription>
+					</CardHeader>
+					<CardContent className="grid gap-6 sm:grid-cols-2">
+						{wallet.totals.map((total) => (
+							<div
+								key={total.unit}
+								className="border-l-2 border-background/35 pl-4"
+							>
+								<div className="flex min-w-0 items-baseline gap-2">
+									<span className="truncate text-5xl font-semibold tracking-normal tabular-nums">
+										{formatAmount(total.spendable)}
+									</span>
+									<span className="text-xs font-semibold uppercase text-background/60">
+										{total.unit}
+									</span>
 								</div>
-							))}
-						</div>
-						</CardContent>
-					</Card>
+								<div className="mt-3 flex flex-wrap gap-4 text-xs text-background/60">
+									<span>total {formatAmount(total.total)}</span>
+									<span>reserved {formatAmount(total.reserved)}</span>
+								</div>
+							</div>
+						))}
+					</CardContent>
+				</Card>
 
-					<Card size="sm">
-						<CardHeader>
-							<CardTitle className="flex items-center gap-2 text-sm">
-								<ShieldCheck className="size-4" />
-								Mints
-							</CardTitle>
-							<CardAction>
-								<Badge variant={trustedMints.length ? "default" : "secondary"}>
-									{trustedMints.length} trusted
-								</Badge>
-							</CardAction>
-						</CardHeader>
-						<CardContent className="space-y-4">
-						<form className="space-y-3" onSubmit={handleAddMint}>
-							<Field label="Mint URL">
-								<Input
-									value={mintUrl}
-									onChange={(event) => setMintUrl(event.target.value)}
-									placeholder="https://mint.example"
+				<Card>
+					<CardHeader>
+						<CardTitle>Quick actions</CardTitle>
+						<CardDescription>Jump into the common wallet flows.</CardDescription>
+					</CardHeader>
+					<CardContent className="grid grid-cols-2 gap-2">
+						<ActionLink to="/mint" icon={Download} label="Mint" />
+						<ActionLink to="/send" icon={Send} label="Send" />
+						<ActionLink to="/receive" icon={Check} label="Receive" />
+						<ActionLink to="/melt" icon={Zap} label="Melt" />
+					</CardContent>
+				</Card>
+			</div>
+
+			<div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+				{wallet.snapshot?.balances.length ? (
+					wallet.snapshot.balances.map((balance) => (
+						<Card key={`${balance.mintUrl}:${balance.unit}`} size="sm">
+							<CardContent className="min-w-0">
+								<div className="flex items-baseline gap-2">
+									<span className="text-xl font-semibold tabular-nums">
+										{formatAmount(balance.spendable)}
+									</span>
+									<span className="text-xs font-semibold uppercase text-muted-foreground">
+										{balance.unit}
+									</span>
+								</div>
+								<div className="mt-2 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+									<Detail label="reserved" value={formatAmount(balance.reserved)} />
+									<Detail label="total" value={formatAmount(balance.total)} />
+								</div>
+								<p className="mt-3 truncate text-xs text-muted-foreground">
+									{balance.mintUrl}
+								</p>
+							</CardContent>
+						</Card>
+					))
+				) : (
+					<EmptyState label="No balance entries" />
+				)}
+			</div>
+
+			<div className="grid gap-5 xl:grid-cols-2">
+				<section className="min-w-0 space-y-3">
+					<SectionTitle
+						icon={Activity}
+						title="Active operations"
+						count={wallet.operations.length}
+					/>
+					<OperationList
+						operations={activeOperations}
+						busy={wallet.busy}
+						onAction={wallet.handleOperationAction}
+						onCancelMelt={wallet.handleCancelMelt}
+						onCancelSend={wallet.handleCancelSend}
+						onCancelReceive={wallet.handleCancelReceive}
+					/>
+				</section>
+				<section className="min-w-0 space-y-3">
+					<SectionTitle icon={History} title="Recent history" count={wallet.history.length} />
+					<HistoryList history={recentHistory} />
+				</section>
+			</div>
+		</div>
+	);
+}
+
+function MintScreen() {
+	const wallet = useWallet();
+
+	return (
+		<div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+			<section className="min-w-0 space-y-5">
+				<PageHeader
+					icon={Download}
+					title="Mint ecash"
+					description="Create a Lightning payment request and settle it into proofs."
+				/>
+				<Card>
+					<CardHeader>
+						<CardTitle>Mint quote</CardTitle>
+						<CardDescription>
+							Select a trusted mint, choose an amount, then check settlement.
+						</CardDescription>
+					</CardHeader>
+					<CardContent className="space-y-5">
+						<form
+							className="grid gap-4 lg:grid-cols-[1fr_12rem_8rem_auto]"
+							onSubmit={wallet.handleCreateMintQuote}
+						>
+							<Field label="Mint">
+								<MintPicker
+									value={wallet.quoteMintUrl}
+									mints={wallet.trustedMints}
+									onChange={wallet.setQuoteMintUrl}
 								/>
 							</Field>
-							<div className="grid grid-cols-2 gap-2">
-								<Button type="submit" size="sm" disabled={busy !== null}>
-									<Plus />
-									Trust
+							<Field label="Amount">
+								<Input
+									inputMode="numeric"
+									value={wallet.quoteAmount}
+									onChange={(event) => wallet.setQuoteAmount(event.target.value)}
+								/>
+							</Field>
+							<Field label="Unit">
+								<Input
+									value={wallet.quoteUnit}
+									onChange={(event) => wallet.setQuoteUnit(event.target.value)}
+								/>
+							</Field>
+							<div className="flex items-end">
+								<Button type="submit" disabled={wallet.busy !== null} className="w-full">
+									<Download />
+									Quote
+								</Button>
+							</div>
+						</form>
+
+						<div className="grid gap-4 lg:grid-cols-2">
+							{wallet.lastMintQuote ? (
+								<OutputBlock
+									title="Payment request"
+									value={wallet.lastMintQuote.request}
+									meta={`${wallet.lastMintQuote.amount ?? wallet.quoteAmount} ${
+										wallet.lastMintQuote.unit
+									}`}
+								/>
+							) : (
+								<EmptyState label="No active mint quote" />
+							)}
+							{wallet.lastMintOperation ? (
+								<OperationPreview operation={wallet.lastMintOperation}>
+									<Button
+										type="button"
+										variant="outline"
+										size="sm"
+										disabled={wallet.busy !== null}
+										onClick={() =>
+											wallet.handleRefreshMintOperation(wallet.lastMintOperation!.id)
+										}
+									>
+										<RefreshCw />
+										Check settlement
+									</Button>
+								</OperationPreview>
+							) : null}
+						</div>
+					</CardContent>
+				</Card>
+			</section>
+
+			<MintManagementCard />
+		</div>
+	);
+}
+
+function SendScreen() {
+	const wallet = useWallet();
+
+	return (
+		<div className="grid gap-5">
+			<PageHeader
+				icon={Send}
+				title="Send"
+				description="Prepare proofs, then create a Cashu token for the recipient."
+			/>
+			<Card>
+				<CardHeader>
+					<CardTitle>Token send</CardTitle>
+					<CardDescription>
+						Prepared sends reserve proofs until the token is created or cancelled.
+					</CardDescription>
+				</CardHeader>
+				<CardContent className="space-y-5">
+					<form
+						className="grid gap-4 lg:grid-cols-[1fr_10rem_7rem_1fr_auto]"
+						onSubmit={wallet.handlePrepareSend}
+					>
+						<Field label="Mint">
+							<MintPicker
+								value={wallet.sendMintUrl}
+								mints={wallet.trustedMints}
+								onChange={wallet.setSendMintUrl}
+							/>
+						</Field>
+						<Field label="Amount">
+							<Input
+								inputMode="numeric"
+								value={wallet.sendAmount}
+								onChange={(event) => wallet.setSendAmount(event.target.value)}
+							/>
+						</Field>
+						<Field label="Unit">
+							<Input
+								value={wallet.sendUnit}
+								onChange={(event) => wallet.setSendUnit(event.target.value)}
+							/>
+						</Field>
+						<Field label="Memo">
+							<Input
+								value={wallet.sendMemo}
+								onChange={(event) => wallet.setSendMemo(event.target.value)}
+							/>
+						</Field>
+						<div className="flex items-end">
+							<Button type="submit" disabled={wallet.busy !== null} className="w-full">
+								<Send />
+								Prepare
+							</Button>
+						</div>
+					</form>
+
+					<div className="grid gap-4 lg:grid-cols-2">
+						{wallet.preparedSend ? (
+							<OperationPreview operation={wallet.preparedSend}>
+								<div className="flex flex-wrap gap-2">
+									<Button
+										type="button"
+										size="sm"
+										disabled={wallet.busy !== null}
+										onClick={() => wallet.handleExecuteSend(wallet.preparedSend!.id)}
+									>
+										<Send />
+										Create token
+									</Button>
+									<Button
+										type="button"
+										variant="outline"
+										size="sm"
+										disabled={wallet.busy !== null}
+										onClick={() => wallet.handleCancelSend(wallet.preparedSend!.id)}
+									>
+										<X />
+										Cancel
+									</Button>
+								</div>
+							</OperationPreview>
+						) : (
+							<EmptyState label="No prepared send" />
+						)}
+						{wallet.resultToken ? (
+							<OutputBlock title="Cashu token" value={wallet.resultToken} />
+						) : null}
+					</div>
+				</CardContent>
+			</Card>
+		</div>
+	);
+}
+
+function ReceiveScreen() {
+	const wallet = useWallet();
+
+	return (
+		<div className="grid gap-5">
+			<PageHeader
+				icon={Check}
+				title="Receive"
+				description="Inspect an incoming Cashu token before accepting its proofs."
+			/>
+			<Card>
+				<CardHeader>
+					<CardTitle>Incoming token</CardTitle>
+					<CardDescription>
+						Paste a token, prepare the receive, then accept it into the wallet.
+					</CardDescription>
+				</CardHeader>
+				<CardContent className="space-y-5">
+					<form
+						className="grid gap-4 lg:grid-cols-[1fr_auto]"
+						onSubmit={wallet.handlePrepareReceive}
+					>
+						<Field label="Token">
+							<Textarea
+								value={wallet.receiveToken}
+								onChange={(event) => wallet.setReceiveToken(event.target.value)}
+								className="min-h-40"
+							/>
+						</Field>
+						<div className="flex items-end">
+							<Button type="submit" disabled={wallet.busy !== null} className="w-full">
+								<Check />
+								Prepare
+							</Button>
+						</div>
+					</form>
+
+					{wallet.preparedReceive ? (
+						<OperationPreview operation={wallet.preparedReceive}>
+							<div className="flex flex-wrap gap-2">
+								<Button
+									type="button"
+									size="sm"
+									disabled={wallet.busy !== null}
+									onClick={() =>
+										wallet.handleExecuteReceive(wallet.preparedReceive!.id)
+									}
+								>
+									<Check />
+									Accept
 								</Button>
 								<Button
 									type="button"
 									variant="outline"
 									size="sm"
-									disabled={busy !== null}
-									onClick={handlePreviewMint}
+									disabled={wallet.busy !== null}
+									onClick={() =>
+										wallet.handleCancelReceive(wallet.preparedReceive!.id)
+									}
 								>
-									<Landmark />
-									Preview
+									<X />
+									Cancel
 								</Button>
 							</div>
-							<Button
-								type="button"
-								variant="ghost"
-								size="sm"
-								className="w-full justify-start px-0"
-								disabled={busy !== null}
-								onClick={handleRestoreMint}
-							>
-								<RotateCcw />
-								Restore selected mint
-							</Button>
-						</form>
+						</OperationPreview>
+					) : (
+						<EmptyState label="No prepared receive" />
+					)}
+				</CardContent>
+			</Card>
+		</div>
+	);
+}
 
-						<div className="space-y-3">
-							{snapshot?.mints.length ? (
-								snapshot.mints.map((mint) => (
-									<div
-										key={mint.mintUrl}
-										className="grid gap-1 border-l-2 border-primary/70 pl-3"
-									>
-										<div className="flex min-w-0 items-center justify-between gap-2">
-											<span className="truncate text-sm font-medium">
-												{mint.name}
-											</span>
-											<Badge variant={mint.trusted ? "default" : "secondary"}>
-												{mint.trusted ? "trusted" : "cached"}
-											</Badge>
-										</div>
-										<span className="truncate text-xs text-muted-foreground">
-											{mint.mintUrl}
-										</span>
-									</div>
-								))
-							) : (
-								<EmptyState label="No mints" />
-							)}
-						</div>
-						</CardContent>
-					</Card>
+function MeltScreen() {
+	const wallet = useWallet();
 
-					<Card size="sm">
-						<CardHeader>
-							<CardTitle className="flex items-center gap-2 text-sm">
-								<Database className="size-4" />
-								Storage
-							</CardTitle>
-						</CardHeader>
-						<CardContent>
-						<p className="break-all text-xs leading-relaxed text-muted-foreground">
-							{snapshot?.dataDir ?? "Waiting for wallet bridge"}
-						</p>
-						</CardContent>
-					</Card>
-				</aside>
-
-				<section className="min-w-0">
-					<div className="flex flex-col gap-5">
-						<div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-							{snapshot?.balances.length ? (
-								snapshot.balances.map((balance) => (
-									<Card
-										key={`${balance.mintUrl}:${balance.unit}`}
-										size="sm"
-										className="min-w-0"
-									>
-										<CardContent className="min-w-0">
-											<div className="flex items-baseline gap-2">
-												<span className="text-xl font-semibold tabular-nums">
-													{formatAmount(balance.spendable)}
-												</span>
-												<span className="text-xs font-semibold uppercase text-muted-foreground">
-													{balance.unit}
-												</span>
-											</div>
-											<p className="mt-1 truncate text-xs text-muted-foreground">
-												{balance.mintUrl}
-											</p>
-										</CardContent>
-									</Card>
-								))
-							) : (
-								<EmptyState label="No balance entries" />
-							)}
-						</div>
-
-						<Card>
-							<CardHeader>
-								<CardTitle>Wallet Actions</CardTitle>
-								<CardDescription>
-									Mint ecash, send tokens, receive proofs, and pay Lightning invoices.
-								</CardDescription>
-							</CardHeader>
-							<CardContent>
-						<Tabs defaultValue="mint" className="gap-5">
-							<TabsList
-								variant="default"
-								className="grid h-10 w-full grid-cols-4 gap-1 sm:inline-flex sm:justify-start sm:overflow-x-auto"
-							>
-								<TabsTrigger
-									value="mint"
-									className="h-8 gap-1 px-1 text-[0.625rem] sm:h-10 sm:px-4 sm:text-xs"
-								>
-									<Download />
-									Mint
-								</TabsTrigger>
-								<TabsTrigger
-									value="send"
-									className="h-8 gap-1 px-1 text-[0.625rem] sm:h-10 sm:px-4 sm:text-xs"
-								>
-									<Send />
-									Send
-								</TabsTrigger>
-								<TabsTrigger
-									value="receive"
-									className="h-8 gap-1 px-1 text-[0.625rem] sm:h-10 sm:px-4 sm:text-xs"
-								>
-									<Check />
-									Receive
-								</TabsTrigger>
-								<TabsTrigger
-									value="melt"
-									className="h-8 gap-1 px-1 text-[0.625rem] sm:h-10 sm:px-4 sm:text-xs"
-								>
-									<Zap />
-									Melt
-								</TabsTrigger>
-							</TabsList>
-
-							<TabsContent value="mint">
-								<form className="grid gap-4 lg:grid-cols-[1fr_12rem_8rem_auto]" onSubmit={handleCreateMintQuote}>
-									<Field label="Mint">
-										<MintPicker
-											value={quoteMintUrl}
-											mints={trustedMints}
-											onChange={setQuoteMintUrl}
-										/>
-									</Field>
-									<Field label="Amount">
-										<Input
-											inputMode="numeric"
-											value={quoteAmount}
-											onChange={(event) => setQuoteAmount(event.target.value)}
-										/>
-									</Field>
-									<Field label="Unit">
-										<Input
-											value={quoteUnit}
-											onChange={(event) => setQuoteUnit(event.target.value)}
-										/>
-									</Field>
-									<div className="flex items-end">
-										<Button type="submit" disabled={busy !== null} className="w-full">
-											<Download />
-											Quote
-										</Button>
-									</div>
-								</form>
-
-								<div className="mt-5 grid gap-4 lg:grid-cols-2">
-									{lastMintQuote ? (
-										<OutputBlock
-											title="Payment request"
-											value={lastMintQuote.request}
-											meta={`${lastMintQuote.amount ?? quoteAmount} ${lastMintQuote.unit}`}
-										/>
-									) : (
-										<EmptyState label="No active mint quote" />
-									)}
-									{lastMintOperation ? (
-										<OperationPreview operation={lastMintOperation}>
-											<Button
-												type="button"
-												variant="outline"
-												size="sm"
-												disabled={busy !== null}
-												onClick={() =>
-													void runAction(
-														"refreshMintOperation",
-														() =>
-															walletClient.refreshMintOperation({
-																operationId: lastMintOperation.id,
-															}),
-														"Mint checked",
-														(data) => setLastMintOperation(data),
-													)
-												}
-											>
-												<RefreshCw />
-												Check settlement
-											</Button>
-										</OperationPreview>
-									) : null}
-								</div>
-							</TabsContent>
-
-							<TabsContent value="send">
-								<form className="grid gap-4 lg:grid-cols-[1fr_10rem_7rem_1fr_auto]" onSubmit={handlePrepareSend}>
-									<Field label="Mint">
-										<MintPicker
-											value={sendMintUrl}
-											mints={trustedMints}
-											onChange={setSendMintUrl}
-										/>
-									</Field>
-									<Field label="Amount">
-										<Input
-											inputMode="numeric"
-											value={sendAmount}
-											onChange={(event) => setSendAmount(event.target.value)}
-										/>
-									</Field>
-									<Field label="Unit">
-										<Input
-											value={sendUnit}
-											onChange={(event) => setSendUnit(event.target.value)}
-										/>
-									</Field>
-									<Field label="Memo">
-										<Input
-											value={sendMemo}
-											onChange={(event) => setSendMemo(event.target.value)}
-										/>
-									</Field>
-									<div className="flex items-end">
-										<Button type="submit" disabled={busy !== null} className="w-full">
-											<Send />
-											Prepare
-										</Button>
-									</div>
-								</form>
-
-								<div className="mt-5 grid gap-4 lg:grid-cols-2">
-									{preparedSend ? (
-										<OperationPreview operation={preparedSend}>
-											<div className="flex gap-2">
-												<Button
-													type="button"
-													size="sm"
-													disabled={busy !== null}
-													onClick={() => handleExecuteSend(preparedSend.id)}
-												>
-													<Send />
-													Create token
-												</Button>
-												<Button
-													type="button"
-													variant="outline"
-													size="sm"
-													disabled={busy !== null}
-													onClick={() => handleCancelSend(preparedSend.id)}
-												>
-													<X />
-													Cancel
-												</Button>
-											</div>
-										</OperationPreview>
-									) : (
-										<EmptyState label="No prepared send" />
-									)}
-									{resultToken ? (
-										<OutputBlock title="Cashu token" value={resultToken} />
-									) : null}
-								</div>
-							</TabsContent>
-
-							<TabsContent value="receive">
-								<form className="grid gap-4 lg:grid-cols-[1fr_auto]" onSubmit={handlePrepareReceive}>
-									<Field label="Token">
-										<Textarea
-											value={receiveToken}
-											onChange={(event) => setReceiveToken(event.target.value)}
-											className="min-h-28"
-										/>
-									</Field>
-									<div className="flex items-end">
-										<Button type="submit" disabled={busy !== null} className="w-full">
-											<Check />
-											Prepare
-										</Button>
-									</div>
-								</form>
-
-								<div className="mt-5">
-									{preparedReceive ? (
-										<OperationPreview operation={preparedReceive}>
-											<div className="flex gap-2">
-												<Button
-													type="button"
-													size="sm"
-													disabled={busy !== null}
-													onClick={() => handleExecuteReceive(preparedReceive.id)}
-												>
-													<Check />
-													Accept
-												</Button>
-												<Button
-													type="button"
-													variant="outline"
-													size="sm"
-													disabled={busy !== null}
-													onClick={() => handleCancelReceive(preparedReceive.id)}
-												>
-													<X />
-													Cancel
-												</Button>
-											</div>
-										</OperationPreview>
-									) : (
-										<EmptyState label="No prepared receive" />
-									)}
-								</div>
-							</TabsContent>
-
-							<TabsContent value="melt">
-								<form className="grid gap-4 lg:grid-cols-[1fr_8rem_auto]" onSubmit={handlePrepareMelt}>
-									<div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-										<Field label="Mint">
-											<MintPicker
-												value={meltMintUrl}
-												mints={trustedMints}
-												onChange={setMeltMintUrl}
-											/>
-										</Field>
-										<Field label="Invoice">
-											<Textarea
-												value={meltInvoice}
-												onChange={(event) => setMeltInvoice(event.target.value)}
-												className="min-h-20"
-											/>
-										</Field>
-									</div>
-									<Field label="Unit">
-										<Input
-											value={meltUnit}
-											onChange={(event) => setMeltUnit(event.target.value)}
-										/>
-									</Field>
-									<div className="flex items-end">
-										<Button type="submit" disabled={busy !== null} className="w-full">
-											<Zap />
-											Prepare
-										</Button>
-									</div>
-								</form>
-
-								<div className="mt-5">
-									{preparedMelt ? (
-										<OperationPreview operation={preparedMelt}>
-											<div className="flex flex-wrap gap-2">
-												{preparedMelt.state === "prepared" ? (
-													<>
-														<Button
-															type="button"
-															size="sm"
-															disabled={busy !== null}
-															onClick={() => handleExecuteMelt(preparedMelt.id)}
-														>
-															<Zap />
-															Pay
-														</Button>
-														<Button
-															type="button"
-															variant="outline"
-															size="sm"
-															disabled={busy !== null}
-															onClick={() => handleCancelMelt(preparedMelt.id)}
-														>
-															<X />
-															Cancel
-														</Button>
-													</>
-												) : (
-													<Button
-														type="button"
-														variant="outline"
-														size="sm"
-														disabled={busy !== null}
-														onClick={() =>
-															void runAction(
-																"refreshMeltOperation",
-																() =>
-																	walletClient.refreshMeltOperation({
-																		operationId: preparedMelt.id,
-																	}),
-																"Melt refreshed",
-																(data) => setPreparedMelt(data),
-															)
-														}
-													>
-														<RefreshCw />
-														Refresh
-													</Button>
-												)}
-											</div>
-										</OperationPreview>
-									) : (
-										<EmptyState label="No prepared melt" />
-									)}
-								</div>
-							</TabsContent>
-						</Tabs>
-							</CardContent>
-						</Card>
-
-						<Separator />
-
-						<div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-							<section className="min-w-0 space-y-3">
-								<div className="flex items-center justify-between">
-									<h2 className="flex items-center gap-2 text-sm font-semibold tracking-wider uppercase">
-										<Activity className="size-4" />
-										Operations
-									</h2>
-									<Badge variant="secondary">{operations.length}</Badge>
-								</div>
-								<OperationList
-									operations={operations}
-									busy={busy}
-									onAction={handleOperationAction}
-									onCancelMelt={handleCancelMelt}
-									onCancelSend={handleCancelSend}
-									onCancelReceive={handleCancelReceive}
+	return (
+		<div className="grid gap-5">
+			<PageHeader
+				icon={Zap}
+				title="Melt"
+				description="Pay a Lightning invoice with selected Cashu proofs."
+			/>
+			<Card>
+				<CardHeader>
+					<CardTitle>Lightning payment</CardTitle>
+					<CardDescription>
+						Prepare the melt quote, submit payment, then refresh settlement.
+					</CardDescription>
+				</CardHeader>
+				<CardContent className="space-y-5">
+					<form
+						className="grid gap-4 lg:grid-cols-[1fr_8rem_auto]"
+						onSubmit={wallet.handlePrepareMelt}
+					>
+						<div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
+							<Field label="Mint">
+								<MintPicker
+									value={wallet.meltMintUrl}
+									mints={wallet.trustedMints}
+									onChange={wallet.setMeltMintUrl}
 								/>
-							</section>
-
-							<section className="min-w-0 space-y-3">
-								<div className="flex items-center justify-between">
-									<h2 className="flex items-center gap-2 text-sm font-semibold tracking-wider uppercase">
-										<History className="size-4" />
-										History
-									</h2>
-									<Badge variant="secondary">{history.length}</Badge>
-								</div>
-								<div className="grid max-h-[30rem] gap-3 overflow-y-auto pr-1">
-									{history.length ? (
-										history.map((entry) => (
-											<Card key={entry.id} size="sm">
-												<CardContent className="flex items-center justify-between gap-3">
-													<div className="min-w-0">
-														<div className="flex items-center gap-2">
-															<Badge>{entry.type}</Badge>
-															<span className="truncate text-sm font-medium">
-																{entry.state}
-															</span>
-														</div>
-														<p className="mt-1 truncate text-xs text-muted-foreground">
-															{entry.mintUrl}
-														</p>
-													</div>
-													<div className="text-right">
-														<div className="text-sm font-semibold tabular-nums">
-															{formatAmount(entry.amount)} {entry.unit}
-														</div>
-														<div className="text-xs text-muted-foreground">
-															{formatDate(entry.updatedAt)}
-														</div>
-													</div>
-												</CardContent>
-											</Card>
-										))
-									) : (
-										<EmptyState label="No history" />
-									)}
-								</div>
-							</section>
+							</Field>
+							<Field label="Invoice">
+								<Textarea
+									value={wallet.meltInvoice}
+									onChange={(event) => wallet.setMeltInvoice(event.target.value)}
+									className="min-h-28"
+								/>
+							</Field>
 						</div>
-					</div>
+						<Field label="Unit">
+							<Input
+								value={wallet.meltUnit}
+								onChange={(event) => wallet.setMeltUnit(event.target.value)}
+							/>
+						</Field>
+						<div className="flex items-end">
+							<Button type="submit" disabled={wallet.busy !== null} className="w-full">
+								<Zap />
+								Prepare
+							</Button>
+						</div>
+					</form>
+
+					{wallet.preparedMelt ? (
+						<OperationPreview operation={wallet.preparedMelt}>
+							<div className="flex flex-wrap gap-2">
+								{wallet.preparedMelt.state === "prepared" ? (
+									<>
+										<Button
+											type="button"
+											size="sm"
+											disabled={wallet.busy !== null}
+											onClick={() =>
+												wallet.handleExecuteMelt(wallet.preparedMelt!.id)
+											}
+										>
+											<Zap />
+											Pay
+										</Button>
+										<Button
+											type="button"
+											variant="outline"
+											size="sm"
+											disabled={wallet.busy !== null}
+											onClick={() =>
+												wallet.handleCancelMelt(wallet.preparedMelt!.id)
+											}
+										>
+											<X />
+											Cancel
+										</Button>
+									</>
+								) : (
+									<Button
+										type="button"
+										variant="outline"
+										size="sm"
+										disabled={wallet.busy !== null}
+										onClick={() =>
+											wallet.handleRefreshMeltOperation(wallet.preparedMelt!.id)
+										}
+									>
+										<RefreshCw />
+										Refresh
+									</Button>
+								)}
+							</div>
+						</OperationPreview>
+					) : (
+						<EmptyState label="No prepared melt" />
+					)}
+				</CardContent>
+			</Card>
+		</div>
+	);
+}
+
+function ActivityScreen() {
+	const wallet = useWallet();
+
+	return (
+		<div className="grid gap-5">
+			<PageHeader
+				icon={History}
+				title="Activity"
+				description="Active operations and settled wallet history."
+			/>
+			<div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+				<section className="min-w-0 space-y-3">
+					<SectionTitle
+						icon={Activity}
+						title="Operations"
+						count={wallet.operations.length}
+					/>
+					<OperationList
+						operations={wallet.operations}
+						busy={wallet.busy}
+						onAction={wallet.handleOperationAction}
+						onCancelMelt={wallet.handleCancelMelt}
+						onCancelSend={wallet.handleCancelSend}
+						onCancelReceive={wallet.handleCancelReceive}
+					/>
 				</section>
-			</main>
+
+				<section className="min-w-0 space-y-3">
+					<SectionTitle icon={History} title="History" count={wallet.history.length} />
+					<HistoryList history={wallet.history} />
+				</section>
+			</div>
+		</div>
+	);
+}
+
+function SettingsScreen() {
+	const wallet = useWallet();
+
+	return (
+		<div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+			<section className="min-w-0 space-y-5">
+				<PageHeader
+					icon={Settings}
+					title="Settings"
+					description="Trusted mints and local wallet storage."
+				/>
+				<MintManagementCard />
+			</section>
+
+			<Card size="sm">
+				<CardHeader>
+					<CardTitle className="flex items-center gap-2 text-sm">
+						<Database className="size-4" />
+						Storage
+					</CardTitle>
+				</CardHeader>
+				<CardContent>
+					<p className="break-all text-xs leading-relaxed text-muted-foreground">
+						{wallet.snapshot?.dataDir ?? "Waiting for wallet bridge"}
+					</p>
+				</CardContent>
+			</Card>
+		</div>
+	);
+}
+
+function MintManagementCard() {
+	const wallet = useWallet();
+
+	return (
+		<Card size="sm">
+			<CardHeader>
+				<CardTitle className="flex items-center gap-2 text-sm">
+					<ShieldCheck className="size-4" />
+					Mints
+				</CardTitle>
+				<CardAction>
+					<Badge variant={wallet.trustedMints.length ? "default" : "secondary"}>
+						{wallet.trustedMints.length} trusted
+					</Badge>
+				</CardAction>
+			</CardHeader>
+			<CardContent className="space-y-4">
+				<form className="space-y-3" onSubmit={wallet.handleAddMint}>
+					<Field label="Mint URL">
+						<Input
+							value={wallet.mintUrl}
+							onChange={(event) => wallet.setMintUrl(event.target.value)}
+							placeholder="https://mint.example"
+						/>
+					</Field>
+					<div className="grid grid-cols-2 gap-2">
+						<Button type="submit" size="sm" disabled={wallet.busy !== null}>
+							<Plus />
+							Trust
+						</Button>
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							disabled={wallet.busy !== null}
+							onClick={wallet.handlePreviewMint}
+						>
+							<Landmark />
+							Preview
+						</Button>
+					</div>
+					<Button
+						type="button"
+						variant="ghost"
+						size="sm"
+						className="w-full justify-start px-0"
+						disabled={wallet.busy !== null}
+						onClick={wallet.handleRestoreMint}
+					>
+						<RotateCcw />
+						Restore selected mint
+					</Button>
+				</form>
+
+				<div className="space-y-3">
+					{wallet.snapshot?.mints.length ? (
+						wallet.snapshot.mints.map((mint) => (
+							<div
+								key={mint.mintUrl}
+								className="grid gap-1 border-l-2 border-primary/70 pl-3"
+							>
+								<div className="flex min-w-0 items-center justify-between gap-2">
+									<span className="truncate text-sm font-medium">{mint.name}</span>
+									<Badge variant={mint.trusted ? "default" : "secondary"}>
+										{mint.trusted ? "trusted" : "cached"}
+									</Badge>
+								</div>
+								<span className="truncate text-xs text-muted-foreground">
+									{mint.mintUrl}
+								</span>
+							</div>
+						))
+					) : (
+						<EmptyState label="No mints" />
+					)}
+				</div>
+			</CardContent>
+		</Card>
+	);
+}
+
+function ActionLink({
+	to,
+	icon: Icon,
+	label,
+}: {
+	to: string;
+	icon: React.ComponentType<{ className?: string }>;
+	label: string;
+}) {
+	return (
+		<Button asChild variant="outline" className="h-20 flex-col gap-2">
+			<NavLink to={to}>
+				<Icon className="size-5" />
+				{label}
+			</NavLink>
+		</Button>
+	);
+}
+
+function PageHeader({
+	icon: Icon,
+	title,
+	description,
+	action,
+}: {
+	icon: React.ComponentType<{ className?: string }>;
+	title: string;
+	description: string;
+	action?: React.ReactNode;
+}) {
+	return (
+		<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+			<div className="min-w-0">
+				<div className="flex items-center gap-2 text-muted-foreground">
+					<Icon className="size-4" />
+					<span className="text-xs font-semibold tracking-widest uppercase">
+						Wallet
+					</span>
+				</div>
+				<h2 className="mt-2 text-2xl font-semibold tracking-wider uppercase">
+					{title}
+				</h2>
+				<p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+					{description}
+				</p>
+			</div>
+			{action ? <div className="shrink-0">{action}</div> : null}
+		</div>
+	);
+}
+
+function SectionTitle({
+	icon: Icon,
+	title,
+	count,
+}: {
+	icon: React.ComponentType<{ className?: string }>;
+	title: string;
+	count: number;
+}) {
+	return (
+		<div className="flex items-center justify-between">
+			<h3 className="flex items-center gap-2 text-sm font-semibold tracking-wider uppercase">
+				<Icon className="size-4" />
+				{title}
+			</h3>
+			<Badge variant="secondary">{count}</Badge>
 		</div>
 	);
 }
@@ -1089,78 +1550,112 @@ function OperationList({
 	}
 
 	return (
-		<div className="grid max-h-[30rem] gap-3 overflow-y-auto pr-1">
+		<div className="grid max-h-[34rem] gap-3 overflow-y-auto pr-1">
 			{operations.map((operation) => (
 				<Card key={`${operation.type}:${operation.id}`} size="sm">
 					<CardContent>
-					<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+						<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+							<div className="min-w-0">
+								<div className="flex flex-wrap items-center gap-2">
+									<Badge>{operation.type}</Badge>
+									<span className="text-sm font-medium">{operation.state}</span>
+									<span className="text-xs text-muted-foreground">
+										{formatAmount(operation.amount ?? "0")} {operation.unit}
+									</span>
+								</div>
+								<p className="mt-1 truncate text-xs text-muted-foreground">
+									{operation.mintUrl}
+								</p>
+							</div>
+							<div className="flex shrink-0 flex-wrap gap-2">
+								{operation.token ? <CopyButton value={operation.token} compact /> : null}
+								{operation.state === "prepared" ||
+								operation.state === "pending" ||
+								operation.type === "mint" ||
+								operation.type === "melt" ? (
+									<Button
+										type="button"
+										size="xs"
+										variant="outline"
+										disabled={busy !== null}
+										onClick={() => onAction(operation)}
+									>
+										{operation.state === "prepared" ? <Check /> : <RefreshCw />}
+										{operation.state === "prepared" ? "Run" : "Refresh"}
+									</Button>
+								) : null}
+								{operation.type === "send" && operation.state === "prepared" ? (
+									<Button
+										type="button"
+										size="xs"
+										variant="ghost"
+										disabled={busy !== null}
+										onClick={() => onCancelSend(operation.id)}
+									>
+										<X />
+										Cancel
+									</Button>
+								) : null}
+								{operation.type === "receive" && operation.state === "prepared" ? (
+									<Button
+										type="button"
+										size="xs"
+										variant="ghost"
+										disabled={busy !== null}
+										onClick={() => onCancelReceive(operation.id)}
+									>
+										<X />
+										Cancel
+									</Button>
+								) : null}
+								{operation.type === "melt" && operation.state === "prepared" ? (
+									<Button
+										type="button"
+										size="xs"
+										variant="ghost"
+										disabled={busy !== null}
+										onClick={() => onCancelMelt(operation.id)}
+									>
+										<X />
+										Cancel
+									</Button>
+								) : null}
+							</div>
+						</div>
+					</CardContent>
+				</Card>
+			))}
+		</div>
+	);
+}
+
+function HistoryList({ history }: { history: WalletHistoryDto[] }) {
+	if (!history.length) {
+		return <EmptyState label="No history" />;
+	}
+
+	return (
+		<div className="grid max-h-[34rem] gap-3 overflow-y-auto pr-1">
+			{history.map((entry) => (
+				<Card key={entry.id} size="sm">
+					<CardContent className="flex items-center justify-between gap-3">
 						<div className="min-w-0">
-							<div className="flex flex-wrap items-center gap-2">
-								<Badge>{operation.type}</Badge>
-								<span className="text-sm font-medium">{operation.state}</span>
-								<span className="text-xs text-muted-foreground">
-									{formatAmount(operation.amount ?? "0")} {operation.unit}
-								</span>
+							<div className="flex items-center gap-2">
+								<Badge>{entry.type}</Badge>
+								<span className="truncate text-sm font-medium">{entry.state}</span>
 							</div>
 							<p className="mt-1 truncate text-xs text-muted-foreground">
-								{operation.mintUrl}
+								{entry.mintUrl}
 							</p>
 						</div>
-						<div className="flex shrink-0 flex-wrap gap-2">
-							{operation.token ? <CopyButton value={operation.token} compact /> : null}
-							{operation.state === "prepared" ||
-							operation.state === "pending" ||
-							operation.type === "mint" ||
-							operation.type === "melt" ? (
-								<Button
-									type="button"
-									size="xs"
-									variant="outline"
-									disabled={busy !== null}
-									onClick={() => onAction(operation)}
-								>
-									{operation.state === "prepared" ? <Check /> : <RefreshCw />}
-									{operation.state === "prepared" ? "Run" : "Refresh"}
-								</Button>
-							) : null}
-							{operation.type === "send" && operation.state === "prepared" ? (
-								<Button
-									type="button"
-									size="xs"
-									variant="ghost"
-									disabled={busy !== null}
-									onClick={() => onCancelSend(operation.id)}
-								>
-									<X />
-									Cancel
-								</Button>
-							) : null}
-							{operation.type === "receive" && operation.state === "prepared" ? (
-								<Button
-									type="button"
-									size="xs"
-									variant="ghost"
-									disabled={busy !== null}
-									onClick={() => onCancelReceive(operation.id)}
-								>
-									<X />
-									Cancel
-								</Button>
-							) : null}
-							{operation.type === "melt" && operation.state === "prepared" ? (
-								<Button
-									type="button"
-									size="xs"
-									variant="ghost"
-									disabled={busy !== null}
-									onClick={() => onCancelMelt(operation.id)}
-								>
-									<X />
-									Cancel
-								</Button>
-							) : null}
+						<div className="shrink-0 text-right">
+							<div className="text-sm font-semibold tabular-nums">
+								{formatAmount(entry.amount)} {entry.unit}
+							</div>
+							<div className="text-xs text-muted-foreground">
+								{formatDate(entry.updatedAt)}
+							</div>
 						</div>
-					</div>
 					</CardContent>
 				</Card>
 			))}
@@ -1213,6 +1708,15 @@ function EmptyState({ label }: { label: string }) {
 			{label}
 		</div>
 	);
+}
+
+function useWallet() {
+	const wallet = React.useContext(WalletContext);
+	if (!wallet) {
+		throw new Error("useWallet must be used within WalletContext");
+	}
+
+	return wallet;
 }
 
 function isActionResult<TData>(
