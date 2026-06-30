@@ -145,6 +145,7 @@ const ZERO_TOTAL = {
 const PRIMARY_ROUTES: RouteItem[] = [
 	{ path: "/", label: "Overview", icon: Home },
 	{ path: "/mint", label: "Mint", icon: Download },
+	{ path: "/mints", label: "Mints", icon: Landmark },
 	{ path: "/send", label: "Send", icon: Send },
 	{ path: "/receive", label: "Receive", icon: Check },
 	{ path: "/melt", label: "Melt", icon: Zap },
@@ -595,6 +596,7 @@ function WalletShell() {
 					<Routes>
 						<Route index element={<OverviewScreen />} />
 						<Route path="mint" element={<MintScreen />} />
+						<Route path="mints" element={<MintsScreen />} />
 						<Route path="send" element={<SendScreen />} />
 						<Route path="receive" element={<ReceiveScreen />} />
 						<Route path="melt" element={<MeltScreen />} />
@@ -657,7 +659,7 @@ function DesktopNav() {
 function MobileNav() {
 	return (
 		<nav className="fixed inset-x-0 bottom-0 z-20 border-t bg-background/95 px-2 py-2 backdrop-blur lg:hidden">
-			<div className="mx-auto grid max-w-lg grid-cols-7 gap-1">
+			<div className="mx-auto grid max-w-lg grid-cols-8 gap-1">
 				{PRIMARY_ROUTES.map((route) => (
 					<NavItem key={route.path} route={route} compact />
 				))}
@@ -699,99 +701,196 @@ function NavItem({
 
 function OverviewScreen() {
 	const wallet = useWallet();
-	const recentHistory = wallet.history.slice(0, 5);
-	const activeOperations = wallet.operations.slice(0, 4);
+	const recentHistory = wallet.history.slice(0, 6);
+	const activeOperations = wallet.operations.slice(0, 5);
+	const preparedOperations = wallet.operations.filter(
+		(operation) => operation.state === "prepared",
+	);
+	const pendingOperations = wallet.operations.filter(
+		(operation) => operation.state === "pending",
+	);
+	const primaryTotal = wallet.totals[0] ?? ZERO_TOTAL;
+	const otherTotals = wallet.totals.slice(1);
+	const walletState = !wallet.snapshot
+		? {
+				label: "Connecting",
+				detail: "Waiting for the wallet service.",
+				tone: "secondary" as const,
+			}
+		: wallet.trustedMints.length === 0
+			? {
+					label: "Setup needed",
+					detail: "Add a trusted mint before moving funds.",
+					tone: "destructive" as const,
+				}
+			: wallet.operations.length > 0
+				? {
+						label: "Attention",
+						detail: `${wallet.operations.length} operation${
+							wallet.operations.length === 1 ? "" : "s"
+						} in progress.`,
+						tone: "default" as const,
+					}
+				: {
+						label: "Ready",
+						detail: "Wallet is synced and ready to use.",
+						tone: "default" as const,
+					};
 
 	return (
 		<div className="grid gap-5">
-			<PageHeader
-				icon={Home}
-				title="Overview"
-				description="Balance, active work, and recent wallet movement."
-				action={
-					<Button
-						type="button"
-						variant="outline"
-						size="sm"
-						disabled={wallet.busy !== null}
-						onClick={() => void wallet.loadSnapshot()}
-					>
-						<RefreshCw
-							className={wallet.busy === "snapshot" ? "animate-spin" : ""}
-						/>
-						Refresh
-					</Button>
-				}
-			/>
-
-			<div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)]">
-				<Card className="bg-primary/5 ring-primary/15">
-					<CardHeader>
-						<CardTitle className="flex items-center gap-2 text-primary">
-							<Wallet className="size-5" />
-							Wallet balance
-						</CardTitle>
-						<CardDescription>
-							Spendable and reserved proofs by unit
-						</CardDescription>
-					</CardHeader>
-					<CardContent className="grid gap-6 sm:grid-cols-2">
-						{wallet.totals.map((total) => (
-							<div
-								key={total.unit}
-								className="grid gap-4 border-l-2 border-primary/50 pl-4"
-							>
-								<div className="flex min-w-0 items-baseline gap-2">
-									<span className="truncate text-5xl font-semibold tracking-normal tabular-nums">
-										{formatAmount(total.spendable)}
-									</span>
-									<span className="text-xs font-semibold uppercase text-primary">
-										{total.unit}
-									</span>
-								</div>
-								<div className="grid gap-2 sm:grid-cols-2">
-									<BalanceMetric
-										label="total"
-										value={formatAmount(total.total)}
-									/>
-									<BalanceMetric
-										label="reserved"
-										value={formatAmount(total.reserved)}
-									/>
-								</div>
+			<div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(22rem,0.85fr)]">
+				<section className="min-w-0 border bg-card p-5 shadow-sm ring-1 ring-foreground/5 sm:p-6">
+					<div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+						<div className="min-w-0">
+							<div className="flex items-center gap-2 text-muted-foreground">
+								<Home className="size-4" />
+								<span className="text-xs font-semibold tracking-widest uppercase">
+									Home
+								</span>
 							</div>
-						))}
-					</CardContent>
-				</Card>
+							<h2 className="mt-3 text-2xl font-semibold tracking-wider uppercase sm:text-3xl">
+								Wallet command
+							</h2>
+							<p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+								One place for current liquidity, work that needs attention, and
+								the latest completed movement.
+							</p>
+						</div>
+						<div className="flex shrink-0 items-center gap-2">
+							<Badge variant={walletState.tone}>{walletState.label}</Badge>
+							<Button
+								type="button"
+								variant="outline"
+								size="icon-sm"
+								aria-label="Refresh wallet"
+								disabled={wallet.busy !== null}
+								onClick={() => void wallet.loadSnapshot()}
+							>
+								<RefreshCw
+									className={wallet.busy === "snapshot" ? "animate-spin" : ""}
+								/>
+							</Button>
+						</div>
+					</div>
+
+					<div className="mt-8 grid gap-5 lg:grid-cols-[minmax(0,1fr)_14rem]">
+						<div className="min-w-0">
+							<div className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
+								Spendable
+							</div>
+							<div className="mt-3 flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+								<span className="max-w-full truncate text-5xl font-semibold tabular-nums sm:text-6xl">
+									{formatAmount(primaryTotal.spendable)}
+								</span>
+								<span className="text-sm font-semibold tracking-widest text-primary uppercase">
+									{primaryTotal.unit}
+								</span>
+							</div>
+							<div className="mt-5 grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">
+								<InlineMetric
+									label="Reserved"
+									value={`${formatAmount(primaryTotal.reserved)} ${
+										primaryTotal.unit
+									}`}
+								/>
+								<InlineMetric
+									label="Total"
+									value={`${formatAmount(primaryTotal.total)} ${primaryTotal.unit}`}
+								/>
+							</div>
+							{otherTotals.length ? (
+								<div className="mt-5 flex flex-wrap gap-2">
+									{otherTotals.map((total) => (
+										<span
+											key={total.unit}
+											className="border bg-muted px-2.5 py-1 text-xs font-semibold tabular-nums"
+										>
+											{formatAmount(total.spendable)} {total.unit}
+										</span>
+									))}
+								</div>
+							) : null}
+						</div>
+
+						<div className="grid content-start gap-3">
+							<HomeStat
+								label="Trusted mints"
+								value={String(wallet.trustedMints.length)}
+								detail={`${wallet.snapshot?.mints.length ?? 0} known`}
+							/>
+							<HomeStat
+								label="Active work"
+								value={String(wallet.operations.length)}
+								detail={`${preparedOperations.length} prepared`}
+							/>
+							<HomeStat
+								label="History"
+								value={String(wallet.history.length)}
+								detail="settled records"
+							/>
+						</div>
+					</div>
+				</section>
 
 				<Card>
 					<CardHeader>
-						<CardTitle>Quick actions</CardTitle>
-						<CardDescription>Jump into the common wallet flows.</CardDescription>
+						<CardTitle className="flex items-center gap-2">
+							<ShieldCheck className="size-5" />
+							Readiness
+						</CardTitle>
+						<CardDescription>{walletState.detail}</CardDescription>
 					</CardHeader>
-					<CardContent className="grid grid-cols-2 gap-2">
-						<ActionLink to="/mint" icon={Download} label="Mint" />
-						<ActionLink to="/send" icon={Send} label="Send" />
-						<ActionLink to="/receive" icon={Check} label="Receive" />
-						<ActionLink to="/melt" icon={Zap} label="Melt" />
+					<CardContent className="space-y-4">
+						<ReadinessRow
+							icon={Database}
+							label="Wallet service"
+							value={wallet.snapshot ? "Connected" : "Connecting"}
+							state={wallet.snapshot ? "ok" : "muted"}
+						/>
+						<ReadinessRow
+							icon={Landmark}
+							label="Trusted mint access"
+							value={
+								wallet.trustedMints.length
+									? `${wallet.trustedMints.length} available`
+									: "None"
+							}
+							state={wallet.trustedMints.length ? "ok" : "warn"}
+						/>
+						<ReadinessRow
+							icon={Activity}
+							label="Prepared operations"
+							value={
+								preparedOperations.length
+									? `${preparedOperations.length} ready to run`
+									: "Clear"
+							}
+							state={preparedOperations.length ? "warn" : "ok"}
+						/>
+						<ReadinessRow
+							icon={RefreshCw}
+							label="Pending settlement"
+							value={pendingOperations.length ? String(pendingOperations.length) : "Clear"}
+							state={pendingOperations.length ? "warn" : "ok"}
+						/>
 					</CardContent>
 				</Card>
 			</div>
 
-			<div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-				{wallet.snapshot?.balances.length ? (
-					wallet.snapshot.balances.map((balance) => (
-						<BalanceEntryCard
-							key={`${balance.mintUrl}:${balance.unit}`}
-							balance={balance}
-						/>
-					))
-				) : (
-					<EmptyState label="No balance entries" />
-				)}
-			</div>
+			<div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,0.8fr)]">
+				<section className="min-w-0 space-y-3">
+					<SectionTitle
+						icon={Landmark}
+						title="Mint allocation"
+						count={wallet.snapshot?.balances.length ?? 0}
+					/>
+					<MintAllocationList
+						balances={wallet.snapshot?.balances ?? []}
+						mints={wallet.snapshot?.mints ?? []}
+					/>
+				</section>
 
-			<div className="grid gap-5 xl:grid-cols-2">
 				<section className="min-w-0 space-y-3">
 					<SectionTitle
 						icon={Activity}
@@ -807,11 +906,29 @@ function OverviewScreen() {
 						onCancelReceive={wallet.handleCancelReceive}
 					/>
 				</section>
-				<section className="min-w-0 space-y-3">
-					<SectionTitle icon={History} title="Recent history" count={wallet.history.length} />
-					<HistoryList history={recentHistory} />
-				</section>
 			</div>
+
+			<section className="min-w-0 space-y-3">
+				<div className="flex items-center justify-between gap-3">
+					<h3 className="flex items-center gap-2 text-sm font-semibold tracking-wider uppercase">
+						<History className="size-4" />
+						Recent movement
+						<Badge variant="secondary">{wallet.history.length}</Badge>
+					</h3>
+					<Button
+						asChild
+						type="button"
+						variant="outline"
+						size="sm"
+					>
+						<NavLink to="/activity">
+							<History />
+							View all
+						</NavLink>
+					</Button>
+				</div>
+				<HistoryList history={recentHistory} />
+			</section>
 		</div>
 	);
 }
@@ -820,87 +937,112 @@ function MintScreen() {
 	const wallet = useWallet();
 
 	return (
-		<div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+		<div className="grid gap-5">
+			<PageHeader
+				icon={Download}
+				title="Mint ecash"
+				description="Create a Lightning payment request and settle it into proofs."
+			/>
+			<Card>
+				<CardHeader>
+					<CardTitle>Mint quote</CardTitle>
+					<CardDescription>
+						Select a trusted mint, choose an amount, then check settlement.
+					</CardDescription>
+				</CardHeader>
+				<CardContent className="space-y-5">
+					<form
+						className="grid gap-4 lg:grid-cols-[1fr_12rem_8rem_auto]"
+						onSubmit={wallet.handleCreateMintQuote}
+					>
+						<Field label="Mint">
+							<MintPicker
+								value={wallet.quoteMintUrl}
+								mints={wallet.trustedMints}
+								onChange={wallet.setQuoteMintUrl}
+							/>
+						</Field>
+						<Field label="Amount">
+							<Input
+								inputMode="numeric"
+								value={wallet.quoteAmount}
+								onChange={(event) => wallet.setQuoteAmount(event.target.value)}
+							/>
+						</Field>
+						<Field label="Unit">
+							<Input
+								value={wallet.quoteUnit}
+								onChange={(event) => wallet.setQuoteUnit(event.target.value)}
+							/>
+						</Field>
+						<div className="flex items-end">
+							<Button type="submit" disabled={wallet.busy !== null} className="w-full">
+								<Download />
+								Quote
+							</Button>
+						</div>
+					</form>
+
+					<div className="grid gap-4 lg:grid-cols-2">
+						{wallet.lastMintQuote ? (
+							<OutputBlock
+								title="Payment request"
+								value={wallet.lastMintQuote.request}
+								meta={`${wallet.lastMintQuote.amount ?? wallet.quoteAmount} ${
+									wallet.lastMintQuote.unit
+								}`}
+							/>
+						) : (
+							<EmptyState label="No active mint quote" />
+						)}
+						{wallet.lastMintOperation ? (
+							<OperationPreview operation={wallet.lastMintOperation}>
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									disabled={wallet.busy !== null}
+									onClick={() =>
+										wallet.handleRefreshMintOperation(wallet.lastMintOperation!.id)
+									}
+								>
+									<RefreshCw />
+									Check settlement
+								</Button>
+							</OperationPreview>
+						) : null}
+					</div>
+				</CardContent>
+			</Card>
+		</div>
+	);
+}
+
+function MintsScreen() {
+	const wallet = useWallet();
+
+	return (
+		<div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,0.8fr)]">
 			<section className="min-w-0 space-y-5">
 				<PageHeader
-					icon={Download}
-					title="Mint ecash"
-					description="Create a Lightning payment request and settle it into proofs."
+					icon={Landmark}
+					title="Mints"
+					description="Trust, preview, restore, and review known mint servers."
 				/>
-				<Card>
-					<CardHeader>
-						<CardTitle>Mint quote</CardTitle>
-						<CardDescription>
-							Select a trusted mint, choose an amount, then check settlement.
-						</CardDescription>
-					</CardHeader>
-					<CardContent className="space-y-5">
-						<form
-							className="grid gap-4 lg:grid-cols-[1fr_12rem_8rem_auto]"
-							onSubmit={wallet.handleCreateMintQuote}
-						>
-							<Field label="Mint">
-								<MintPicker
-									value={wallet.quoteMintUrl}
-									mints={wallet.trustedMints}
-									onChange={wallet.setQuoteMintUrl}
-								/>
-							</Field>
-							<Field label="Amount">
-								<Input
-									inputMode="numeric"
-									value={wallet.quoteAmount}
-									onChange={(event) => wallet.setQuoteAmount(event.target.value)}
-								/>
-							</Field>
-							<Field label="Unit">
-								<Input
-									value={wallet.quoteUnit}
-									onChange={(event) => wallet.setQuoteUnit(event.target.value)}
-								/>
-							</Field>
-							<div className="flex items-end">
-								<Button type="submit" disabled={wallet.busy !== null} className="w-full">
-									<Download />
-									Quote
-								</Button>
-							</div>
-						</form>
-
-						<div className="grid gap-4 lg:grid-cols-2">
-							{wallet.lastMintQuote ? (
-								<OutputBlock
-									title="Payment request"
-									value={wallet.lastMintQuote.request}
-									meta={`${wallet.lastMintQuote.amount ?? wallet.quoteAmount} ${
-										wallet.lastMintQuote.unit
-									}`}
-								/>
-							) : (
-								<EmptyState label="No active mint quote" />
-							)}
-							{wallet.lastMintOperation ? (
-								<OperationPreview operation={wallet.lastMintOperation}>
-									<Button
-										type="button"
-										variant="outline"
-										size="sm"
-										disabled={wallet.busy !== null}
-										onClick={() =>
-											wallet.handleRefreshMintOperation(wallet.lastMintOperation!.id)
-										}
-									>
-										<RefreshCw />
-										Check settlement
-									</Button>
-								</OperationPreview>
-							) : null}
-						</div>
-					</CardContent>
-				</Card>
+				<MintManagementCard />
 			</section>
 
-			<MintManagementCard />
+			<section className="min-w-0 space-y-3">
+				<SectionTitle
+					icon={Activity}
+					title="Balances by mint"
+					count={wallet.snapshot?.balances.length ?? 0}
+				/>
+				<MintAllocationList
+					balances={wallet.snapshot?.balances ?? []}
+					mints={wallet.snapshot?.mints ?? []}
+				/>
+			</section>
 		</div>
 	);
 }
@@ -1219,17 +1361,13 @@ function SettingsScreen() {
 	const wallet = useWallet();
 
 	return (
-		<div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
-			<section className="min-w-0 space-y-5">
-				<PageHeader
-					icon={Settings}
-					title="Settings"
-					description="Trusted mints and local wallet storage."
-				/>
-				<MintManagementCard />
-			</section>
-
-			<Card size="sm">
+		<div className="grid gap-5">
+			<PageHeader
+				icon={Settings}
+				title="Settings"
+				description="Local wallet storage and application state."
+			/>
+			<Card size="sm" className="max-w-2xl">
 				<CardHeader>
 					<CardTitle className="flex items-center gap-2 text-sm">
 						<Database className="size-4" />
@@ -1327,25 +1465,6 @@ function MintManagementCard() {
 	);
 }
 
-function ActionLink({
-	to,
-	icon: Icon,
-	label,
-}: {
-	to: string;
-	icon: React.ComponentType<{ className?: string }>;
-	label: string;
-}) {
-	return (
-		<Button asChild variant="outline" className="h-20 flex-col gap-2">
-			<NavLink to={to}>
-				<Icon className="size-5" />
-				{label}
-			</NavLink>
-		</Button>
-	);
-}
-
 function PageHeader({
 	icon: Icon,
 	title,
@@ -1375,6 +1494,149 @@ function PageHeader({
 			</div>
 			{action ? <div className="shrink-0">{action}</div> : null}
 		</div>
+	);
+}
+
+function InlineMetric({ label, value }: { label: string; value: string }) {
+	return (
+		<div className="min-w-0 border-l-2 border-primary/40 pl-3">
+			<div className="text-[0.625rem] font-semibold tracking-widest uppercase">
+				{label}
+			</div>
+			<div className="mt-1 truncate font-semibold text-foreground tabular-nums">
+				{value}
+			</div>
+		</div>
+	);
+}
+
+function HomeStat({
+	label,
+	value,
+	detail,
+}: {
+	label: string;
+	value: string;
+	detail: string;
+}) {
+	return (
+		<div className="border bg-background/70 p-3">
+			<div className="text-[0.625rem] font-semibold tracking-widest text-muted-foreground uppercase">
+				{label}
+			</div>
+			<div className="mt-2 flex items-baseline justify-between gap-3">
+				<span className="text-2xl font-semibold tabular-nums">{value}</span>
+				<span className="truncate text-xs text-muted-foreground">{detail}</span>
+			</div>
+		</div>
+	);
+}
+
+function ReadinessRow({
+	icon: Icon,
+	label,
+	value,
+	state,
+}: {
+	icon: React.ComponentType<{ className?: string }>;
+	label: string;
+	value: string;
+	state: "ok" | "warn" | "muted";
+}) {
+	return (
+		<div className="flex items-center justify-between gap-3 border-b pb-3 last:border-b-0 last:pb-0">
+			<div className="flex min-w-0 items-center gap-3">
+				<div
+					className={cn(
+						"flex size-9 shrink-0 items-center justify-center border",
+						state === "ok" && "border-primary/30 bg-primary/10 text-primary",
+						state === "warn" && "border-destructive/30 bg-destructive/10 text-destructive",
+						state === "muted" && "bg-muted text-muted-foreground",
+					)}
+				>
+					<Icon className="size-4" />
+				</div>
+				<span className="truncate text-sm font-medium">{label}</span>
+			</div>
+			<span className="shrink-0 text-right text-xs font-semibold tracking-wider uppercase text-muted-foreground">
+				{value}
+			</span>
+		</div>
+	);
+}
+
+function MintAllocationList({
+	balances,
+	mints,
+}: {
+	balances: MintBalanceDto[];
+	mints: MintDto[];
+}) {
+	if (!balances.length) {
+		return <EmptyState label="No mint balances" />;
+	}
+
+	const spendableByUnit = balances.reduce<Map<string, bigint>>(
+		(totals, balance) =>
+			totals.set(
+				balance.unit,
+				(totals.get(balance.unit) ?? 0n) + toAmountBigInt(balance.spendable),
+			),
+		new Map(),
+	);
+
+	return (
+		<Card>
+			<CardContent className="grid gap-1">
+				{balances.map((balance) => {
+					const mint = mints.find((entry) => entry.mintUrl === balance.mintUrl);
+					const percent = getBalancePercent(
+						balance.spendable,
+						String(spendableByUnit.get(balance.unit) ?? 0n),
+					);
+
+					return (
+						<div
+							key={`${balance.mintUrl}:${balance.unit}`}
+							className="grid gap-3 border-b py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_12rem] sm:items-center"
+						>
+							<div className="min-w-0">
+								<div className="flex min-w-0 flex-wrap items-center gap-2">
+									<span className="truncate text-sm font-semibold">
+										{mint?.name ?? "Unknown mint"}
+									</span>
+									<Badge variant={mint?.trusted ? "default" : "secondary"}>
+										{mint?.trusted ? "trusted" : "cached"}
+									</Badge>
+								</div>
+								<p className="mt-1 truncate text-xs text-muted-foreground">
+									{balance.mintUrl}
+								</p>
+							</div>
+							<div className="min-w-0">
+								<div className="flex items-baseline justify-between gap-3">
+									<span className="truncate text-lg font-semibold tabular-nums">
+										{formatAmount(balance.spendable)} {balance.unit}
+									</span>
+									<span className="shrink-0 text-xs text-muted-foreground">
+										{percent}
+									</span>
+								</div>
+								<div className="mt-2 h-1.5 bg-muted">
+									<div
+										className="h-full bg-primary"
+										style={{ width: percent }}
+									/>
+								</div>
+								<div className="mt-1 text-xs text-muted-foreground">
+									{formatAmount(balance.reserved)} reserved
+								</div>
+							</div>
+						</div>
+					);
+				})}
+			</CardContent>
+		</Card>
 	);
 }
 
@@ -1496,53 +1758,6 @@ function Detail({ label, value }: { label: string; value: string }) {
 			</div>
 			<div className="truncate text-foreground">{value}</div>
 		</div>
-	);
-}
-
-function BalanceMetric({ label, value }: { label: string; value: string }) {
-	return (
-		<div className="min-w-0 border border-primary/15 bg-background/70 px-3 py-2">
-			<div className="text-[0.625rem] font-semibold tracking-widest text-muted-foreground uppercase">
-				{label}
-			</div>
-			<div className="mt-1 truncate text-sm font-semibold tabular-nums">
-				{value}
-			</div>
-		</div>
-	);
-}
-
-function BalanceEntryCard({ balance }: { balance: MintBalanceDto }) {
-	return (
-		<Card size="sm" className="ring-primary/10">
-			<CardContent className="min-w-0">
-				<div className="flex items-start justify-between gap-3">
-					<div className="min-w-0">
-						<div className="flex items-baseline gap-2">
-							<span className="text-2xl font-semibold tabular-nums">
-								{formatAmount(balance.spendable)}
-							</span>
-							<span className="text-xs font-semibold uppercase text-primary">
-								{balance.unit}
-							</span>
-						</div>
-						<p className="mt-1 truncate text-xs text-muted-foreground">
-							{balance.mintUrl}
-						</p>
-					</div>
-					<div className="border bg-accent/70 px-2 py-1 text-[0.625rem] font-semibold tracking-widest text-accent-foreground uppercase">
-						spendable
-					</div>
-				</div>
-				<div className="mt-4 grid grid-cols-2 gap-2">
-					<BalanceMetric
-						label="reserved"
-						value={formatAmount(balance.reserved)}
-					/>
-					<BalanceMetric label="total" value={formatAmount(balance.total)} />
-				</div>
-			</CardContent>
-		</Card>
 	);
 }
 
@@ -1882,6 +2097,29 @@ function formatAmount(value: string) {
 		return BigInt(value).toLocaleString();
 	} catch {
 		return value;
+	}
+}
+
+function toAmountBigInt(value: string) {
+	try {
+		return BigInt(value);
+	} catch {
+		return 0n;
+	}
+}
+
+function getBalancePercent(spendable: string, total: string) {
+	try {
+		const spendableValue = BigInt(spendable);
+		const totalValue = BigInt(total);
+		if (totalValue <= 0n) {
+			return "0%";
+		}
+
+		const percent = Number((spendableValue * 100n) / totalValue);
+		return `${Math.min(100, Math.max(0, percent))}%`;
+	} catch {
+		return "0%";
 	}
 }
 
