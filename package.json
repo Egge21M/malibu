@@ -1,0 +1,50 @@
+{
+	"name": "malibu-cashu-wallet",
+	"version": "1.0.0",
+	"type": "module",
+	"description": "Cashu wallet powered by Coco in the Electrobun main thread with a React renderer",
+	"scripts": {
+		"start": "vite build && env GDK_SCALE=2 electrobun dev",
+		"dev": "env GDK_SCALE=2 electrobun dev --watch",
+		"dev:hmr": "concurrently \"bun run hmr\" \"bun run start\"",
+		"hmr": "vite --port 5173",
+		"build": "tsc --noEmit && vite build",
+		"typecheck": "tsc --noEmit",
+		"preview": "vite preview",
+		"build:canary": "bun run build && electrobun build --env=canary"
+	},
+	"dependencies": {
+		"@cashu/coco-core": "file:/home/egge/projects/coco-feat-melt-watcher/packages/core",
+		"@cashu/coco-sql-storage": "file:/home/egge/projects/coco-feat-melt-watcher/packages/sql-storage",
+		"@cashu/coco-sqlite-bun": "file:/home/egge/projects/coco-feat-melt-watcher/packages/sqlite-bun",
+		"@fontsource-variable/jetbrains-mono": "^5.2.8",
+		"@tailwindcss/vite": "^4",
+		"class-variance-authority": "^0.7.1",
+		"clsx": "^2.1.1",
+		"electrobun": "1.18.1",
+		"lucide-react": "^1.22.0",
+		"radix-ui": "^1.6.0",
+		"react": "^19.2.6",
+		"react-dom": "^19.2.6",
+		"shadcn": "^4.12.0",
+		"tailwind-merge": "^3.6.0",
+		"tailwindcss": "^4",
+		"tw-animate-css": "^1.4.0"
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"@types/node": "^24",
+		"@types/react": "^19",
+		"@types/react-dom": "^19",
+		"@types/three": "^0.185.0",
+		"@vitejs/plugin-react": "^6",
+		"concurrently": "^9.1.0",
+		"typescript": "~6",
+		"vite": "^8"
+	},
+	"overrides": {
+		"@cashu/coco-core": "file:/home/egge/projects/coco-feat-melt-watcher/packages/core",
+		"@cashu/coco-sql-storage": "file:/home/egge/projects/coco-feat-melt-watcher/packages/sql-storage",
+		"@cashu/coco-sqlite-bun": "file:/home/egge/projects/coco-feat-melt-watcher/packages/sqlite-bun"
+	}
+}
