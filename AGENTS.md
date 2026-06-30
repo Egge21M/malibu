@@ -32,3 +32,17 @@ The current history only contains `init`, so there is no established commit conv
 ## Security & Configuration Tips
 
 Wallet data is stored in the platform app data directory by default. Use `MALIBU_WALLET_DIR=/tmp/malibu-dev-wallet bun run dev` for development runs that should not touch a normal wallet. Never commit generated wallet databases, seed files, `dist/`, `build/`, or `node_modules/`.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked in GitHub Issues for `egge21m/malibu`; external PRs are not a triage surface. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the default canonical triage labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This repo uses a single-context domain-doc layout. See `docs/agents/domain.md`.
