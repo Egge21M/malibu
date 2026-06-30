@@ -46,6 +46,10 @@ const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 			cancelMelt: (params) => walletService.cancelMelt(params),
 			refreshMeltOperation: (params) =>
 				walletService.refreshMeltOperation(params),
+			getNotificationSettings: () => walletService.getNotificationSettings(),
+			saveNotificationSettings: (params) =>
+				walletService.saveNotificationSettings(params),
+			testNotification: () => walletService.testNotification(),
 		},
 	},
 });

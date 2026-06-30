@@ -21,6 +21,7 @@ import { SqliteRepositories } from "@cashu/coco-sqlite-bun";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { WalletNotificationService } from "./notification-service.ts";
 import type {
 	AddMintParams,
 	CreateMintQuoteParams,
@@ -33,6 +34,7 @@ import type {
 	PrepareSendParams,
 	WalletActionResult,
 	WalletHistoryDto,
+	WalletNotificationSettings,
 	WalletOperationDto,
 	WalletOperationType,
 	WalletQuoteDto,
@@ -48,6 +50,8 @@ export class CashuWalletService {
 	private readonly dataDir: string;
 	private managerPromise: Promise<Manager> | undefined;
 	private database: Database | undefined;
+	private notificationService: WalletNotificationService | undefined;
+	private unsubscribeNotifications: (() => void) | undefined;
 
 	constructor(dataDir = resolveWalletDataDir()) {
 		this.dataDir = dataDir;
@@ -307,8 +311,26 @@ export class CashuWalletService {
 		return this.withSnapshot(serializeOperation("melt", operation));
 	}
 
+	async getNotificationSettings(): Promise<WalletNotificationSettings> {
+		return this.getNotificationService().getSettings();
+	}
+
+	async saveNotificationSettings(
+		settings: WalletNotificationSettings,
+	): Promise<WalletNotificationSettings> {
+		return this.getNotificationService().saveSettings(settings);
+	}
+
+	async testNotification(): Promise<WalletNotificationSettings> {
+		const service = this.getNotificationService();
+		service.showTestNotification();
+		return service.getSettings();
+	}
+
 	async dispose(): Promise<void> {
 		const manager = await this.managerPromise?.catch(() => undefined);
+		this.unsubscribeNotifications?.();
+		this.unsubscribeNotifications = undefined;
 		await manager?.dispose();
 		this.database?.close();
 		this.database = undefined;
@@ -329,6 +351,11 @@ export class CashuWalletService {
 		return this.managerPromise;
 	}
 
+	private getNotificationService(): WalletNotificationService {
+		this.notificationService ??= new WalletNotificationService(this.dataDir);
+		return this.notificationService;
+	}
+
 	private async initialize(): Promise<Manager> {
 		mkdirSync(this.dataDir, { recursive: true });
 
@@ -342,11 +369,15 @@ export class CashuWalletService {
 		});
 		await repositories.init();
 
-		return initializeCoco({
+		const manager = await initializeCoco({
 			repo: repositories,
 			seedGetter: async () => getOrCreateSeed(this.dataDir),
 			logger: new ConsoleLogger("malibu-wallet", { level: "info" }),
 		});
+		this.unsubscribeNotifications?.();
+		this.unsubscribeNotifications =
+			this.getNotificationService().bindToManager(manager);
+		return manager;
 	}
 }
 

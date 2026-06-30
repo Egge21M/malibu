@@ -121,6 +121,19 @@ export type PrepareMeltParams = {
 	unit: string;
 };
 
+export type WalletNotificationEvent =
+	| "mintSettled"
+	| "tokenReceived"
+	| "paymentCompleted"
+	| "paymentFailed"
+	| "tokenSpent";
+
+export type WalletNotificationSettings = {
+	enabled: boolean;
+	silent: boolean;
+	events: Record<WalletNotificationEvent, boolean>;
+};
+
 export type WalletRpcSchema = {
 	bun: {
 		requests: {
@@ -196,6 +209,18 @@ export type WalletRpcSchema = {
 			refreshMeltOperation: {
 				params: OperationIdParams;
 				response: WalletActionResult<WalletOperationDto>;
+			};
+			getNotificationSettings: {
+				params: undefined;
+				response: WalletNotificationSettings;
+			};
+			saveNotificationSettings: {
+				params: WalletNotificationSettings;
+				response: WalletNotificationSettings;
+			};
+			testNotification: {
+				params: undefined;
+				response: WalletNotificationSettings;
 			};
 		};
 		messages: {};

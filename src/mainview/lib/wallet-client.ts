@@ -7,6 +7,7 @@ import type {
 	PrepareMeltParams,
 	PrepareReceiveParams,
 	PrepareSendParams,
+	WalletNotificationSettings,
 	WalletRpcSchema,
 } from "@/lib/wallet-rpc";
 
@@ -67,4 +68,8 @@ export const walletClient = {
 		getRpc().request.cancelMelt(params),
 	refreshMeltOperation: (params: OperationIdParams) =>
 		getRpc().request.refreshMeltOperation(params),
+	getNotificationSettings: () => getRpc().request.getNotificationSettings(),
+	saveNotificationSettings: (params: WalletNotificationSettings) =>
+		getRpc().request.saveNotificationSettings(params),
+	testNotification: () => getRpc().request.testNotification(),
 };

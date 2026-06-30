@@ -1,6 +1,8 @@
 import * as React from "react";
 import {
 	Activity,
+	Bell,
+	BellOff,
 	Check,
 	Copy,
 	Database,
@@ -59,6 +61,8 @@ import type {
 	MintDto,
 	WalletActionResult,
 	WalletHistoryDto,
+	WalletNotificationEvent,
+	WalletNotificationSettings,
 	WalletOperationDto,
 	WalletQuoteDto,
 	WalletSnapshot,
@@ -125,6 +129,10 @@ type WalletViewContext = {
 	handleCancelMelt: (operationId: string) => void;
 	handleRefreshMeltOperation: (operationId: string) => void;
 	handleOperationAction: (operation: WalletOperationDto) => void;
+	notificationSettings: WalletNotificationSettings | null;
+	notificationBusy: string | null;
+	saveNotificationSettings: (settings: WalletNotificationSettings) => void;
+	testNotification: () => void;
 };
 
 type RouteItem = {
@@ -153,10 +161,47 @@ const PRIMARY_ROUTES: RouteItem[] = [
 	{ path: "/settings", label: "Settings", icon: Settings },
 ];
 
+const NOTIFICATION_EVENT_OPTIONS: Array<{
+	event: WalletNotificationEvent;
+	label: string;
+	detail: string;
+}> = [
+	{
+		event: "mintSettled",
+		label: "Mint settled",
+		detail: "A Lightning mint quote finalized into spendable proofs.",
+	},
+	{
+		event: "tokenReceived",
+		label: "Token received",
+		detail: "An incoming Cashu token was accepted into the wallet.",
+	},
+	{
+		event: "paymentCompleted",
+		label: "Payment complete",
+		detail: "A Lightning payment finished successfully.",
+	},
+	{
+		event: "paymentFailed",
+		label: "Payment failed",
+		detail: "A Lightning payment rolled back and released reserved proofs.",
+	},
+	{
+		event: "tokenSpent",
+		label: "Token spent",
+		detail: "A sent token was claimed by the recipient.",
+	},
+];
+
 function App() {
 	const [snapshot, setSnapshot] = React.useState<WalletSnapshot | null>(null);
 	const [status, setStatus] = React.useState<StatusState>(null);
 	const [busy, setBusy] = React.useState<string | null>("snapshot");
+	const [notificationSettings, setNotificationSettings] =
+		React.useState<WalletNotificationSettings | null>(null);
+	const [notificationBusy, setNotificationBusy] = React.useState<string | null>(
+		null,
+	);
 	const [mintUrl, setMintUrl] = React.useState("");
 	const [quoteMintUrl, setQuoteMintUrl] = React.useState("");
 	const [quoteAmount, setQuoteAmount] = React.useState("21");
@@ -206,6 +251,26 @@ function App() {
 	React.useEffect(() => {
 		void loadSnapshot();
 	}, [loadSnapshot]);
+
+	const loadNotificationSettings = React.useCallback(async () => {
+		setNotificationBusy("load");
+		try {
+			const settings = await walletClient.getNotificationSettings();
+			setNotificationSettings(settings);
+		} catch (error) {
+			setStatus({
+				kind: "error",
+				title: "Notifications unavailable",
+				message: getErrorMessage(error),
+			});
+		} finally {
+			setNotificationBusy(null);
+		}
+	}, []);
+
+	React.useEffect(() => {
+		void loadNotificationSettings();
+	}, [loadNotificationSettings]);
 
 	React.useEffect(() => {
 		if (!defaultMintUrl) {
@@ -441,6 +506,42 @@ function App() {
 		}
 	}
 
+	function saveNotificationSettings(settings: WalletNotificationSettings) {
+		setNotificationBusy("save");
+		void walletClient
+			.saveNotificationSettings(settings)
+			.then((savedSettings) => {
+				setNotificationSettings(savedSettings);
+				setStatus({ kind: "success", title: "Notifications updated" });
+			})
+			.catch((error) => {
+				setStatus({
+					kind: "error",
+					title: "Action failed",
+					message: getErrorMessage(error),
+				});
+			})
+			.finally(() => setNotificationBusy(null));
+	}
+
+	function testNotification() {
+		setNotificationBusy("test");
+		void walletClient
+			.testNotification()
+			.then((settings) => {
+				setNotificationSettings(settings);
+				setStatus({ kind: "success", title: "Test notification sent" });
+			})
+			.catch((error) => {
+				setStatus({
+					kind: "error",
+					title: "Action failed",
+					message: getErrorMessage(error),
+				});
+			})
+			.finally(() => setNotificationBusy(null));
+	}
+
 	const totals = snapshot?.totalByUnit.length ? snapshot.totalByUnit : [ZERO_TOTAL];
 	const operations = snapshot?.operations ?? [];
 	const history = snapshot?.history ?? [];
@@ -500,11 +601,17 @@ function App() {
 			handleCancelMelt,
 			handleRefreshMeltOperation,
 			handleOperationAction,
+			notificationSettings,
+			notificationBusy,
+			saveNotificationSettings,
+			testNotification,
 		}),
 		[
 			snapshot,
 			status,
 			busy,
+			notificationSettings,
+			notificationBusy,
 			trustedMints,
 			totals,
 			operations,
@@ -1359,6 +1466,12 @@ function ActivityScreen() {
 
 function SettingsScreen() {
 	const wallet = useWallet();
+	const settings = wallet.notificationSettings;
+	const notificationsDisabled = wallet.notificationBusy !== null || !settings;
+
+	function updateSettings(nextSettings: WalletNotificationSettings) {
+		wallet.saveNotificationSettings(nextSettings);
+	}
 
 	return (
 		<div className="grid gap-5">
@@ -1367,20 +1480,135 @@ function SettingsScreen() {
 				title="Settings"
 				description="Local wallet storage and application state."
 			/>
-			<Card size="sm" className="max-w-2xl">
-				<CardHeader>
-					<CardTitle className="flex items-center gap-2 text-sm">
-						<Database className="size-4" />
-						Storage
-					</CardTitle>
-				</CardHeader>
-				<CardContent>
-					<p className="break-all text-xs leading-relaxed text-muted-foreground">
-						{wallet.snapshot?.dataDir ?? "Waiting for wallet bridge"}
-					</p>
-				</CardContent>
-			</Card>
+			<div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,0.8fr)]">
+				<Card size="sm">
+					<CardHeader>
+						<CardTitle className="flex items-center gap-2 text-sm">
+							{settings?.enabled ? (
+								<Bell className="size-4" />
+							) : (
+								<BellOff className="size-4" />
+							)}
+							Notifications
+						</CardTitle>
+						<CardAction>
+							<Badge variant={settings?.enabled ? "default" : "secondary"}>
+								{settings?.enabled ? "enabled" : "disabled"}
+							</Badge>
+						</CardAction>
+						<CardDescription>
+							Native desktop alerts for Coco wallet events.
+						</CardDescription>
+					</CardHeader>
+					<CardContent className="space-y-5">
+						<div className="grid gap-3">
+							<NotificationToggle
+								label="Desktop alerts"
+								detail="Allow Malibu to show OS notifications for wallet events."
+								checked={settings?.enabled ?? false}
+								disabled={notificationsDisabled}
+								onChange={(checked) =>
+									settings && updateSettings({ ...settings, enabled: checked })
+								}
+							/>
+							<NotificationToggle
+								label="Silent alerts"
+								detail="Suppress notification sounds while still showing alerts."
+								checked={settings?.silent ?? false}
+								disabled={notificationsDisabled}
+								onChange={(checked) =>
+									settings && updateSettings({ ...settings, silent: checked })
+								}
+							/>
+						</div>
+
+						<div className="border-t pt-4">
+							<div className="mb-3 text-xs font-semibold tracking-widest text-muted-foreground uppercase">
+								Events
+							</div>
+							<div className="grid gap-3">
+								{NOTIFICATION_EVENT_OPTIONS.map((option) => (
+									<NotificationToggle
+										key={option.event}
+										label={option.label}
+										detail={option.detail}
+										checked={settings?.events[option.event] ?? false}
+										disabled={notificationsDisabled}
+										onChange={(checked) =>
+											settings &&
+											updateSettings({
+												...settings,
+												events: {
+													...settings.events,
+													[option.event]: checked,
+												},
+											})
+										}
+									/>
+								))}
+							</div>
+						</div>
+
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							disabled={wallet.notificationBusy !== null}
+							onClick={wallet.testNotification}
+						>
+							<Bell />
+							Send test
+						</Button>
+					</CardContent>
+				</Card>
+
+				<Card size="sm">
+					<CardHeader>
+						<CardTitle className="flex items-center gap-2 text-sm">
+							<Database className="size-4" />
+							Storage
+						</CardTitle>
+					</CardHeader>
+					<CardContent>
+						<p className="break-all text-xs leading-relaxed text-muted-foreground">
+							{wallet.snapshot?.dataDir ?? "Waiting for wallet bridge"}
+						</p>
+					</CardContent>
+				</Card>
+			</div>
 		</div>
+	);
+}
+
+function NotificationToggle({
+	label,
+	detail,
+	checked,
+	disabled,
+	onChange,
+}: {
+	label: string;
+	detail: string;
+	checked: boolean;
+	disabled: boolean;
+	onChange: (checked: boolean) => void;
+}) {
+	return (
+		<label className="grid cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-start gap-3 border-l-2 border-border pl-3 has-disabled:cursor-not-allowed has-disabled:opacity-60">
+			<input
+				type="checkbox"
+				className="mt-0.5 size-4 accent-primary"
+				checked={checked}
+				disabled={disabled}
+				onChange={(event) => onChange(event.target.checked)}
+			/>
+			<span className="min-w-0">
+				<span className="block text-sm font-medium">{label}</span>
+				<span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+					{detail}
+				</span>
+			</span>
+		</label>
 	);
 }
 
