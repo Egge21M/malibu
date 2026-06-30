@@ -55,6 +55,7 @@ import { cn } from "@/lib/utils";
 import { walletClient } from "@/lib/wallet-client";
 import type {
 	BalanceSnapshotDto,
+	MintBalanceDto,
 	MintDto,
 	WalletActionResult,
 	WalletHistoryDto,
@@ -614,31 +615,29 @@ function DesktopNav() {
 
 	return (
 		<nav className="sticky top-24 space-y-4">
-			<Card size="sm" className="border-0 bg-foreground text-background ring-0">
+			<Card size="sm" className="bg-primary/5 ring-primary/15">
 				<CardHeader>
-					<CardTitle className="flex items-center gap-2 text-background">
+					<CardTitle className="flex items-center gap-2 text-sm text-primary">
 						<Activity className="size-4" />
 						Balance
 					</CardTitle>
-					<CardDescription className="text-background/65">
-						Spendable proofs
-					</CardDescription>
+					<CardDescription>Spendable proofs</CardDescription>
 				</CardHeader>
 				<CardContent className="space-y-4">
 					{wallet.totals.map((total) => (
 						<div
 							key={total.unit}
-							className="border-l-2 border-background/35 pl-3"
+							className="border-l-2 border-primary/50 pl-3"
 						>
 							<div className="flex min-w-0 items-baseline gap-2">
 								<span className="truncate text-3xl font-semibold tabular-nums">
 									{formatAmount(total.spendable)}
 								</span>
-								<span className="text-xs font-semibold uppercase text-background/60">
+								<span className="text-xs font-semibold uppercase text-primary">
 									{total.unit}
 								</span>
 							</div>
-							<div className="mt-2 flex flex-wrap gap-3 text-xs text-background/60">
+							<div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
 								<span>total {formatAmount(total.total)}</span>
 								<span>reserved {formatAmount(total.reserved)}</span>
 							</div>
@@ -726,10 +725,13 @@ function OverviewScreen() {
 			/>
 
 			<div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)]">
-				<Card className="border-0 bg-foreground text-background ring-0">
+				<Card className="bg-primary/5 ring-primary/15">
 					<CardHeader>
-						<CardTitle className="text-background">Wallet balance</CardTitle>
-						<CardDescription className="text-background/65">
+						<CardTitle className="flex items-center gap-2 text-primary">
+							<Wallet className="size-5" />
+							Wallet balance
+						</CardTitle>
+						<CardDescription>
 							Spendable and reserved proofs by unit
 						</CardDescription>
 					</CardHeader>
@@ -737,19 +739,25 @@ function OverviewScreen() {
 						{wallet.totals.map((total) => (
 							<div
 								key={total.unit}
-								className="border-l-2 border-background/35 pl-4"
+								className="grid gap-4 border-l-2 border-primary/50 pl-4"
 							>
 								<div className="flex min-w-0 items-baseline gap-2">
 									<span className="truncate text-5xl font-semibold tracking-normal tabular-nums">
 										{formatAmount(total.spendable)}
 									</span>
-									<span className="text-xs font-semibold uppercase text-background/60">
+									<span className="text-xs font-semibold uppercase text-primary">
 										{total.unit}
 									</span>
 								</div>
-								<div className="mt-3 flex flex-wrap gap-4 text-xs text-background/60">
-									<span>total {formatAmount(total.total)}</span>
-									<span>reserved {formatAmount(total.reserved)}</span>
+								<div className="grid gap-2 sm:grid-cols-2">
+									<BalanceMetric
+										label="total"
+										value={formatAmount(total.total)}
+									/>
+									<BalanceMetric
+										label="reserved"
+										value={formatAmount(total.reserved)}
+									/>
 								</div>
 							</div>
 						))}
@@ -773,25 +781,10 @@ function OverviewScreen() {
 			<div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
 				{wallet.snapshot?.balances.length ? (
 					wallet.snapshot.balances.map((balance) => (
-						<Card key={`${balance.mintUrl}:${balance.unit}`} size="sm">
-							<CardContent className="min-w-0">
-								<div className="flex items-baseline gap-2">
-									<span className="text-xl font-semibold tabular-nums">
-										{formatAmount(balance.spendable)}
-									</span>
-									<span className="text-xs font-semibold uppercase text-muted-foreground">
-										{balance.unit}
-									</span>
-								</div>
-								<div className="mt-2 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-									<Detail label="reserved" value={formatAmount(balance.reserved)} />
-									<Detail label="total" value={formatAmount(balance.total)} />
-								</div>
-								<p className="mt-3 truncate text-xs text-muted-foreground">
-									{balance.mintUrl}
-								</p>
-							</CardContent>
-						</Card>
+						<BalanceEntryCard
+							key={`${balance.mintUrl}:${balance.unit}`}
+							balance={balance}
+						/>
 					))
 				) : (
 					<EmptyState label="No balance entries" />
@@ -1503,6 +1496,53 @@ function Detail({ label, value }: { label: string; value: string }) {
 			</div>
 			<div className="truncate text-foreground">{value}</div>
 		</div>
+	);
+}
+
+function BalanceMetric({ label, value }: { label: string; value: string }) {
+	return (
+		<div className="min-w-0 border border-primary/15 bg-background/70 px-3 py-2">
+			<div className="text-[0.625rem] font-semibold tracking-widest text-muted-foreground uppercase">
+				{label}
+			</div>
+			<div className="mt-1 truncate text-sm font-semibold tabular-nums">
+				{value}
+			</div>
+		</div>
+	);
+}
+
+function BalanceEntryCard({ balance }: { balance: MintBalanceDto }) {
+	return (
+		<Card size="sm" className="ring-primary/10">
+			<CardContent className="min-w-0">
+				<div className="flex items-start justify-between gap-3">
+					<div className="min-w-0">
+						<div className="flex items-baseline gap-2">
+							<span className="text-2xl font-semibold tabular-nums">
+								{formatAmount(balance.spendable)}
+							</span>
+							<span className="text-xs font-semibold uppercase text-primary">
+								{balance.unit}
+							</span>
+						</div>
+						<p className="mt-1 truncate text-xs text-muted-foreground">
+							{balance.mintUrl}
+						</p>
+					</div>
+					<div className="border bg-accent/70 px-2 py-1 text-[0.625rem] font-semibold tracking-widest text-accent-foreground uppercase">
+						spendable
+					</div>
+				</div>
+				<div className="mt-4 grid grid-cols-2 gap-2">
+					<BalanceMetric
+						label="reserved"
+						value={formatAmount(balance.reserved)}
+					/>
+					<BalanceMetric label="total" value={formatAmount(balance.total)} />
+				</div>
+			</CardContent>
+		</Card>
 	);
 }
 
