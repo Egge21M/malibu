@@ -540,6 +540,7 @@ function App() {
 
 function WalletShell() {
 	const wallet = useWallet();
+	useWheelScrollFallback();
 
 	return (
 		<div className="min-h-svh bg-background text-foreground">
@@ -1717,6 +1718,117 @@ function useWallet() {
 	}
 
 	return wallet;
+}
+
+function useWheelScrollFallback() {
+	React.useEffect(() => {
+		function handleWheel(event: WheelEvent) {
+			if (
+				event.defaultPrevented ||
+				event.ctrlKey ||
+				event.metaKey ||
+				event.altKey ||
+				!(event.target instanceof Element)
+			) {
+				return;
+			}
+
+			const delta = getWheelDelta(event);
+			if (delta.x === 0 && delta.y === 0) {
+				return;
+			}
+
+			const scroller = findWheelScroller(event.target, delta);
+			if (!scroller) {
+				return;
+			}
+
+			event.preventDefault();
+			scroller.scrollBy({
+				left: delta.x,
+				top: delta.y,
+				behavior: "auto",
+			});
+		}
+
+		window.addEventListener("wheel", handleWheel, {
+			capture: true,
+			passive: false,
+		});
+
+		return () => {
+			window.removeEventListener("wheel", handleWheel, { capture: true });
+		};
+	}, []);
+}
+
+function getWheelDelta(event: WheelEvent) {
+	const scale =
+		event.deltaMode === WheelEvent.DOM_DELTA_LINE
+			? 16
+			: event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+				? window.innerHeight
+				: 1;
+
+	return {
+		x: event.deltaX * scale,
+		y: event.deltaY * scale,
+	};
+}
+
+function findWheelScroller(target: Element, delta: { x: number; y: number }) {
+	const documentScroller = document.scrollingElement;
+	let element: Element | null = target;
+
+	while (element) {
+		if (
+			element instanceof HTMLElement &&
+			isScrollableElement(element) &&
+			canScrollByDelta(element, delta)
+		) {
+			return element;
+		}
+
+		element = element.parentElement;
+	}
+
+	if (
+		documentScroller instanceof HTMLElement &&
+		canScrollByDelta(documentScroller, delta)
+	) {
+		return documentScroller;
+	}
+
+	return null;
+}
+
+function isScrollableElement(element: HTMLElement) {
+	const style = window.getComputedStyle(element);
+	const canScrollY =
+		/(auto|scroll|overlay)/.test(style.overflowY) &&
+		element.scrollHeight > element.clientHeight;
+	const canScrollX =
+		/(auto|scroll|overlay)/.test(style.overflowX) &&
+		element.scrollWidth > element.clientWidth;
+
+	return canScrollY || canScrollX;
+}
+
+function canScrollByDelta(element: HTMLElement, delta: { x: number; y: number }) {
+	const canScrollY =
+		delta.y < 0
+			? element.scrollTop > 0
+			: delta.y > 0
+				? element.scrollTop + element.clientHeight < element.scrollHeight - 1
+				: false;
+	const canScrollX =
+		delta.x < 0
+			? element.scrollLeft > 0
+			: delta.x > 0
+				? element.scrollLeft + element.clientWidth < element.scrollWidth - 1
+				: false;
+
+	return canScrollY || canScrollX;
 }
 
 function isActionResult<TData>(
