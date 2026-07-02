@@ -50,6 +50,12 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import {
+	Tabs,
+	TabsContent,
+	TabsList,
+	TabsTrigger,
+} from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { walletClient } from "@/lib/wallet-client";
@@ -144,11 +150,9 @@ const ZERO_TOTAL = {
 
 const PRIMARY_ROUTES: RouteItem[] = [
 	{ path: "/", label: "Overview", icon: Home },
-	{ path: "/mint", label: "Mint", icon: Download },
 	{ path: "/mints", label: "Mints", icon: Landmark },
 	{ path: "/send", label: "Send", icon: Send },
 	{ path: "/receive", label: "Receive", icon: Check },
-	{ path: "/melt", label: "Melt", icon: Zap },
 	{ path: "/activity", label: "Activity", icon: History },
 	{ path: "/settings", label: "Settings", icon: Settings },
 ];
@@ -280,7 +284,7 @@ function App() {
 					amount: quoteAmount,
 					unit: quoteUnit,
 				}),
-			"Mint quote ready",
+			"Lightning invoice ready",
 			(data) => {
 				setLastMintQuote(data.quote);
 				setLastMintOperation(data.operation);
@@ -292,7 +296,7 @@ function App() {
 		void runAction(
 			`mint:${operationId}`,
 			() => walletClient.refreshMintOperation({ operationId }),
-			"Mint checked",
+			"Lightning invoice checked",
 			(data) => setLastMintOperation(data),
 		);
 	}
@@ -374,7 +378,7 @@ function App() {
 					invoice: meltInvoice,
 					unit: meltUnit,
 				}),
-			"Melt prepared",
+			"Lightning payment prepared",
 			(data) => setPreparedMelt(data.operation),
 		);
 	}
@@ -392,7 +396,7 @@ function App() {
 		void runAction(
 			"cancelMelt",
 			() => walletClient.cancelMelt({ operationId }),
-			"Melt cancelled",
+			"Lightning payment cancelled",
 			() => setPreparedMelt(null),
 		);
 	}
@@ -401,7 +405,7 @@ function App() {
 		void runAction(
 			`melt:${operationId}`,
 			() => walletClient.refreshMeltOperation({ operationId }),
-			"Melt refreshed",
+			"Lightning payment refreshed",
 			(data) => setPreparedMelt(data),
 		);
 	}
@@ -595,11 +599,11 @@ function WalletShell() {
 					{wallet.status ? <StatusAlert status={wallet.status} /> : null}
 					<Routes>
 						<Route index element={<OverviewScreen />} />
-						<Route path="mint" element={<MintScreen />} />
+						<Route path="mint" element={<Navigate to="/receive" replace />} />
 						<Route path="mints" element={<MintsScreen />} />
 						<Route path="send" element={<SendScreen />} />
 						<Route path="receive" element={<ReceiveScreen />} />
-						<Route path="melt" element={<MeltScreen />} />
+						<Route path="melt" element={<Navigate to="/send" replace />} />
 						<Route path="activity" element={<ActivityScreen />} />
 						<Route path="settings" element={<SettingsScreen />} />
 						<Route path="*" element={<Navigate to="/" replace />} />
@@ -659,7 +663,7 @@ function DesktopNav() {
 function MobileNav() {
 	return (
 		<nav className="fixed inset-x-0 bottom-0 z-20 border-t bg-background/95 px-2 py-2 backdrop-blur lg:hidden">
-			<div className="mx-auto grid max-w-lg grid-cols-8 gap-1">
+			<div className="mx-auto grid max-w-lg grid-cols-6 gap-1">
 				{PRIMARY_ROUTES.map((route) => (
 					<NavItem key={route.path} route={route} compact />
 				))}
@@ -933,91 +937,6 @@ function OverviewScreen() {
 	);
 }
 
-function MintScreen() {
-	const wallet = useWallet();
-
-	return (
-		<div className="grid gap-5">
-			<PageHeader
-				icon={Download}
-				title="Mint ecash"
-				description="Create a Lightning payment request and settle it into proofs."
-			/>
-			<Card>
-				<CardHeader>
-					<CardTitle>Mint quote</CardTitle>
-					<CardDescription>
-						Select a trusted mint, choose an amount, then check settlement.
-					</CardDescription>
-				</CardHeader>
-				<CardContent className="space-y-5">
-					<form
-						className="grid gap-4 lg:grid-cols-[1fr_12rem_8rem_auto]"
-						onSubmit={wallet.handleCreateMintQuote}
-					>
-						<Field label="Mint">
-							<MintPicker
-								value={wallet.quoteMintUrl}
-								mints={wallet.trustedMints}
-								onChange={wallet.setQuoteMintUrl}
-							/>
-						</Field>
-						<Field label="Amount">
-							<Input
-								inputMode="numeric"
-								value={wallet.quoteAmount}
-								onChange={(event) => wallet.setQuoteAmount(event.target.value)}
-							/>
-						</Field>
-						<Field label="Unit">
-							<Input
-								value={wallet.quoteUnit}
-								onChange={(event) => wallet.setQuoteUnit(event.target.value)}
-							/>
-						</Field>
-						<div className="flex items-end">
-							<Button type="submit" disabled={wallet.busy !== null} className="w-full">
-								<Download />
-								Quote
-							</Button>
-						</div>
-					</form>
-
-					<div className="grid gap-4 lg:grid-cols-2">
-						{wallet.lastMintQuote ? (
-							<OutputBlock
-								title="Payment request"
-								value={wallet.lastMintQuote.request}
-								meta={`${wallet.lastMintQuote.amount ?? wallet.quoteAmount} ${
-									wallet.lastMintQuote.unit
-								}`}
-							/>
-						) : (
-							<EmptyState label="No active mint quote" />
-						)}
-						{wallet.lastMintOperation ? (
-							<OperationPreview operation={wallet.lastMintOperation}>
-								<Button
-									type="button"
-									variant="outline"
-									size="sm"
-									disabled={wallet.busy !== null}
-									onClick={() =>
-										wallet.handleRefreshMintOperation(wallet.lastMintOperation!.id)
-									}
-								>
-									<RefreshCw />
-									Check settlement
-								</Button>
-							</OperationPreview>
-						) : null}
-					</div>
-				</CardContent>
-			</Card>
-		</div>
-	);
-}
-
 function MintsScreen() {
 	const wallet = useWallet();
 
@@ -1048,275 +967,401 @@ function MintsScreen() {
 }
 
 function SendScreen() {
-	const wallet = useWallet();
-
 	return (
 		<div className="grid gap-5">
 			<PageHeader
 				icon={Send}
 				title="Send"
-				description="Prepare proofs, then create a Cashu token for the recipient."
+				description="Choose the outgoing rail first, then finish the matching wallet operation."
 			/>
 			<Card>
 				<CardHeader>
-					<CardTitle>Token send</CardTitle>
+					<CardTitle>Send action</CardTitle>
 					<CardDescription>
-						Prepared sends reserve proofs until the token is created or cancelled.
+						Send ecash directly or pay a Lightning invoice from wallet proofs.
 					</CardDescription>
 				</CardHeader>
-				<CardContent className="space-y-5">
-					<form
-						className="grid gap-4 lg:grid-cols-[1fr_10rem_7rem_1fr_auto]"
-						onSubmit={wallet.handlePrepareSend}
-					>
-						<Field label="Mint">
-							<MintPicker
-								value={wallet.sendMintUrl}
-								mints={wallet.trustedMints}
-								onChange={wallet.setSendMintUrl}
-							/>
-						</Field>
-						<Field label="Amount">
-							<Input
-								inputMode="numeric"
-								value={wallet.sendAmount}
-								onChange={(event) => wallet.setSendAmount(event.target.value)}
-							/>
-						</Field>
-						<Field label="Unit">
-							<Input
-								value={wallet.sendUnit}
-								onChange={(event) => wallet.setSendUnit(event.target.value)}
-							/>
-						</Field>
-						<Field label="Memo">
-							<Input
-								value={wallet.sendMemo}
-								onChange={(event) => wallet.setSendMemo(event.target.value)}
-							/>
-						</Field>
-						<div className="flex items-end">
-							<Button type="submit" disabled={wallet.busy !== null} className="w-full">
+				<CardContent>
+					<Tabs defaultValue="ecash" className="gap-5">
+						<TabsList className="grid h-auto w-full grid-cols-2 sm:w-fit">
+							<TabsTrigger value="ecash" className="h-11">
 								<Send />
-								Prepare
-							</Button>
-						</div>
-					</form>
-
-					<div className="grid gap-4 lg:grid-cols-2">
-						{wallet.preparedSend ? (
-							<OperationPreview operation={wallet.preparedSend}>
-								<div className="flex flex-wrap gap-2">
-									<Button
-										type="button"
-										size="sm"
-										disabled={wallet.busy !== null}
-										onClick={() => wallet.handleExecuteSend(wallet.preparedSend!.id)}
-									>
-										<Send />
-										Create token
-									</Button>
-									<Button
-										type="button"
-										variant="outline"
-										size="sm"
-										disabled={wallet.busy !== null}
-										onClick={() => wallet.handleCancelSend(wallet.preparedSend!.id)}
-									>
-										<X />
-										Cancel
-									</Button>
-								</div>
-							</OperationPreview>
-						) : (
-							<EmptyState label="No prepared send" />
-						)}
-						{wallet.resultToken ? (
-							<OutputBlock title="Cashu token" value={wallet.resultToken} />
-						) : null}
-					</div>
+								Ecash
+							</TabsTrigger>
+							<TabsTrigger value="lightning" className="h-11">
+								<Zap />
+								Lightning
+							</TabsTrigger>
+						</TabsList>
+						<TabsContent value="ecash">
+							<SendEcashPanel />
+						</TabsContent>
+						<TabsContent value="lightning">
+							<SendLightningPanel />
+						</TabsContent>
+					</Tabs>
 				</CardContent>
 			</Card>
 		</div>
 	);
 }
 
-function ReceiveScreen() {
+function SendEcashPanel() {
 	const wallet = useWallet();
 
 	return (
-		<div className="grid gap-5">
-			<PageHeader
-				icon={Check}
-				title="Receive"
-				description="Inspect an incoming Cashu token before accepting its proofs."
-			/>
-			<Card>
-				<CardHeader>
-					<CardTitle>Incoming token</CardTitle>
-					<CardDescription>
-						Paste a token, prepare the receive, then accept it into the wallet.
-					</CardDescription>
-				</CardHeader>
-				<CardContent className="space-y-5">
-					<form
-						className="grid gap-4 lg:grid-cols-[1fr_auto]"
-						onSubmit={wallet.handlePrepareReceive}
-					>
-						<Field label="Token">
-							<Textarea
-								value={wallet.receiveToken}
-								onChange={(event) => wallet.setReceiveToken(event.target.value)}
-								className="min-h-40"
-							/>
-						</Field>
-						<div className="flex items-end">
-							<Button type="submit" disabled={wallet.busy !== null} className="w-full">
-								<Check />
-								Prepare
+		<div className="space-y-5">
+			<div className="grid gap-2 border-l-2 border-primary/50 pl-3">
+				<h3 className="text-sm font-semibold tracking-wider uppercase">
+					Ecash token
+				</h3>
+				<p className="text-sm text-muted-foreground">
+					Reserve proofs and create a Cashu token for the recipient.
+				</p>
+			</div>
+			<form
+				className="grid gap-4 lg:grid-cols-[1fr_10rem_7rem_1fr_auto]"
+				onSubmit={wallet.handlePrepareSend}
+			>
+				<Field label="Mint">
+					<MintPicker
+						value={wallet.sendMintUrl}
+						mints={wallet.trustedMints}
+						onChange={wallet.setSendMintUrl}
+					/>
+				</Field>
+				<Field label="Amount">
+					<Input
+						inputMode="numeric"
+						value={wallet.sendAmount}
+						onChange={(event) => wallet.setSendAmount(event.target.value)}
+					/>
+				</Field>
+				<Field label="Unit">
+					<Input
+						value={wallet.sendUnit}
+						onChange={(event) => wallet.setSendUnit(event.target.value)}
+					/>
+				</Field>
+				<Field label="Memo">
+					<Input
+						value={wallet.sendMemo}
+						onChange={(event) => wallet.setSendMemo(event.target.value)}
+					/>
+				</Field>
+				<div className="flex items-end">
+					<Button type="submit" disabled={wallet.busy !== null} className="w-full">
+						<Send />
+						Prepare
+					</Button>
+				</div>
+			</form>
+
+			<div className="grid gap-4 lg:grid-cols-2">
+				{wallet.preparedSend ? (
+					<OperationPreview operation={wallet.preparedSend}>
+						<div className="flex flex-wrap gap-2">
+							<Button
+								type="button"
+								size="sm"
+								disabled={wallet.busy !== null}
+								onClick={() => wallet.handleExecuteSend(wallet.preparedSend!.id)}
+							>
+								<Send />
+								Create token
+							</Button>
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								disabled={wallet.busy !== null}
+								onClick={() => wallet.handleCancelSend(wallet.preparedSend!.id)}
+							>
+								<X />
+								Cancel
 							</Button>
 						</div>
-					</form>
+					</OperationPreview>
+				) : (
+					<EmptyState label="No prepared ecash send" />
+				)}
+				{wallet.resultToken ? (
+					<OutputBlock title="Cashu token" value={wallet.resultToken} />
+				) : null}
+			</div>
+		</div>
+	);
+}
 
-					{wallet.preparedReceive ? (
-						<OperationPreview operation={wallet.preparedReceive}>
-							<div className="flex flex-wrap gap-2">
+function SendLightningPanel() {
+	const wallet = useWallet();
+
+	return (
+		<div className="space-y-5">
+			<div className="grid gap-2 border-l-2 border-primary/50 pl-3">
+				<h3 className="text-sm font-semibold tracking-wider uppercase">
+					Lightning invoice
+				</h3>
+				<p className="text-sm text-muted-foreground">
+					Use wallet proofs to pay an external Lightning request.
+				</p>
+			</div>
+			<form className="grid gap-4" onSubmit={wallet.handlePrepareMelt}>
+				<div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_8rem]">
+					<Field label="Mint">
+						<MintPicker
+							value={wallet.meltMintUrl}
+							mints={wallet.trustedMints}
+							onChange={wallet.setMeltMintUrl}
+						/>
+					</Field>
+					<Field label="Invoice">
+						<Textarea
+							value={wallet.meltInvoice}
+							onChange={(event) => wallet.setMeltInvoice(event.target.value)}
+							className="min-h-28"
+						/>
+					</Field>
+					<Field label="Unit">
+						<Input
+							value={wallet.meltUnit}
+							onChange={(event) => wallet.setMeltUnit(event.target.value)}
+						/>
+					</Field>
+				</div>
+				<div className="flex justify-end">
+					<Button type="submit" disabled={wallet.busy !== null}>
+						<Zap />
+						Prepare payment
+					</Button>
+				</div>
+			</form>
+
+			{wallet.preparedMelt ? (
+				<OperationPreview operation={wallet.preparedMelt}>
+					<div className="flex flex-wrap gap-2">
+						{wallet.preparedMelt.state === "prepared" ? (
+							<>
 								<Button
 									type="button"
 									size="sm"
 									disabled={wallet.busy !== null}
-									onClick={() =>
-										wallet.handleExecuteReceive(wallet.preparedReceive!.id)
-									}
+									onClick={() => wallet.handleExecuteMelt(wallet.preparedMelt!.id)}
 								>
-									<Check />
-									Accept
+									<Zap />
+									Pay invoice
 								</Button>
 								<Button
 									type="button"
 									variant="outline"
 									size="sm"
 									disabled={wallet.busy !== null}
-									onClick={() =>
-										wallet.handleCancelReceive(wallet.preparedReceive!.id)
-									}
+									onClick={() => wallet.handleCancelMelt(wallet.preparedMelt!.id)}
 								>
 									<X />
 									Cancel
 								</Button>
-							</div>
-						</OperationPreview>
-					) : (
-						<EmptyState label="No prepared receive" />
-					)}
+							</>
+						) : (
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								disabled={wallet.busy !== null}
+								onClick={() =>
+									wallet.handleRefreshMeltOperation(wallet.preparedMelt!.id)
+								}
+							>
+								<RefreshCw />
+								Refresh
+							</Button>
+						)}
+					</div>
+				</OperationPreview>
+			) : (
+				<EmptyState label="No prepared Lightning payment" />
+			)}
+		</div>
+	);
+}
+
+function ReceiveScreen() {
+	return (
+		<div className="grid gap-5">
+			<PageHeader
+				icon={Check}
+				title="Receive"
+				description="Choose the incoming rail first, then finish the matching wallet operation."
+			/>
+			<Card>
+				<CardHeader>
+					<CardTitle>Receive action</CardTitle>
+					<CardDescription>
+						Accept an ecash token or create a Lightning invoice for new proofs.
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<Tabs defaultValue="ecash" className="gap-5">
+						<TabsList className="grid h-auto w-full grid-cols-2 sm:w-fit">
+							<TabsTrigger value="ecash" className="h-11">
+								<Check />
+								Ecash
+							</TabsTrigger>
+							<TabsTrigger value="lightning" className="h-11">
+								<Download />
+								Lightning
+							</TabsTrigger>
+						</TabsList>
+						<TabsContent value="ecash">
+							<ReceiveEcashPanel />
+						</TabsContent>
+						<TabsContent value="lightning">
+							<ReceiveLightningPanel />
+						</TabsContent>
+					</Tabs>
 				</CardContent>
 			</Card>
 		</div>
 	);
 }
 
-function MeltScreen() {
+function ReceiveEcashPanel() {
 	const wallet = useWallet();
 
 	return (
-		<div className="grid gap-5">
-			<PageHeader
-				icon={Zap}
-				title="Melt"
-				description="Pay a Lightning invoice with selected Cashu proofs."
-			/>
-			<Card>
-				<CardHeader>
-					<CardTitle>Lightning payment</CardTitle>
-					<CardDescription>
-						Prepare the melt quote, submit payment, then refresh settlement.
-					</CardDescription>
-				</CardHeader>
-				<CardContent className="space-y-5">
-					<form
-						className="grid gap-4 lg:grid-cols-[1fr_8rem_auto]"
-						onSubmit={wallet.handlePrepareMelt}
-					>
-						<div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-							<Field label="Mint">
-								<MintPicker
-									value={wallet.meltMintUrl}
-									mints={wallet.trustedMints}
-									onChange={wallet.setMeltMintUrl}
-								/>
-							</Field>
-							<Field label="Invoice">
-								<Textarea
-									value={wallet.meltInvoice}
-									onChange={(event) => wallet.setMeltInvoice(event.target.value)}
-									className="min-h-28"
-								/>
-							</Field>
-						</div>
-						<Field label="Unit">
-							<Input
-								value={wallet.meltUnit}
-								onChange={(event) => wallet.setMeltUnit(event.target.value)}
-							/>
-						</Field>
-						<div className="flex items-end">
-							<Button type="submit" disabled={wallet.busy !== null} className="w-full">
-								<Zap />
-								Prepare
-							</Button>
-						</div>
-					</form>
+		<div className="space-y-5">
+			<div className="grid gap-2 border-l-2 border-primary/50 pl-3">
+				<h3 className="text-sm font-semibold tracking-wider uppercase">
+					Ecash token
+				</h3>
+				<p className="text-sm text-muted-foreground">
+					Inspect a Cashu token before accepting its proofs.
+				</p>
+			</div>
+			<form
+				className="grid gap-4 lg:grid-cols-[1fr_auto]"
+				onSubmit={wallet.handlePrepareReceive}
+			>
+				<Field label="Token">
+					<Textarea
+						value={wallet.receiveToken}
+						onChange={(event) => wallet.setReceiveToken(event.target.value)}
+						className="min-h-40"
+					/>
+				</Field>
+				<div className="flex items-end">
+					<Button type="submit" disabled={wallet.busy !== null} className="w-full">
+						<Check />
+						Prepare
+					</Button>
+				</div>
+			</form>
 
-					{wallet.preparedMelt ? (
-						<OperationPreview operation={wallet.preparedMelt}>
-							<div className="flex flex-wrap gap-2">
-								{wallet.preparedMelt.state === "prepared" ? (
-									<>
-										<Button
-											type="button"
-											size="sm"
-											disabled={wallet.busy !== null}
-											onClick={() =>
-												wallet.handleExecuteMelt(wallet.preparedMelt!.id)
-											}
-										>
-											<Zap />
-											Pay
-										</Button>
-										<Button
-											type="button"
-											variant="outline"
-											size="sm"
-											disabled={wallet.busy !== null}
-											onClick={() =>
-												wallet.handleCancelMelt(wallet.preparedMelt!.id)
-											}
-										>
-											<X />
-											Cancel
-										</Button>
-									</>
-								) : (
-									<Button
-										type="button"
-										variant="outline"
-										size="sm"
-										disabled={wallet.busy !== null}
-										onClick={() =>
-											wallet.handleRefreshMeltOperation(wallet.preparedMelt!.id)
-										}
-									>
-										<RefreshCw />
-										Refresh
-									</Button>
-								)}
-							</div>
-						</OperationPreview>
-					) : (
-						<EmptyState label="No prepared melt" />
-					)}
-				</CardContent>
-			</Card>
+			{wallet.preparedReceive ? (
+				<OperationPreview operation={wallet.preparedReceive}>
+					<div className="flex flex-wrap gap-2">
+						<Button
+							type="button"
+							size="sm"
+							disabled={wallet.busy !== null}
+							onClick={() => wallet.handleExecuteReceive(wallet.preparedReceive!.id)}
+						>
+							<Check />
+							Accept
+						</Button>
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							disabled={wallet.busy !== null}
+							onClick={() => wallet.handleCancelReceive(wallet.preparedReceive!.id)}
+						>
+							<X />
+							Cancel
+						</Button>
+					</div>
+				</OperationPreview>
+			) : (
+				<EmptyState label="No prepared ecash receive" />
+			)}
+		</div>
+	);
+}
+
+function ReceiveLightningPanel() {
+	const wallet = useWallet();
+
+	return (
+		<div className="space-y-5">
+			<div className="grid gap-2 border-l-2 border-primary/50 pl-3">
+				<h3 className="text-sm font-semibold tracking-wider uppercase">
+					Lightning invoice
+				</h3>
+				<p className="text-sm text-muted-foreground">
+					Create a payment request and settle it into ecash proofs.
+				</p>
+			</div>
+			<form
+				className="grid gap-4 lg:grid-cols-[1fr_12rem_8rem_auto]"
+				onSubmit={wallet.handleCreateMintQuote}
+			>
+				<Field label="Mint">
+					<MintPicker
+						value={wallet.quoteMintUrl}
+						mints={wallet.trustedMints}
+						onChange={wallet.setQuoteMintUrl}
+					/>
+				</Field>
+				<Field label="Amount">
+					<Input
+						inputMode="numeric"
+						value={wallet.quoteAmount}
+						onChange={(event) => wallet.setQuoteAmount(event.target.value)}
+					/>
+				</Field>
+				<Field label="Unit">
+					<Input
+						value={wallet.quoteUnit}
+						onChange={(event) => wallet.setQuoteUnit(event.target.value)}
+					/>
+				</Field>
+				<div className="flex items-end">
+					<Button type="submit" disabled={wallet.busy !== null} className="w-full">
+						<Download />
+						Create invoice
+					</Button>
+				</div>
+			</form>
+
+			<div className="grid gap-4 lg:grid-cols-2">
+				{wallet.lastMintQuote ? (
+					<OutputBlock
+						title="Lightning invoice"
+						value={wallet.lastMintQuote.request}
+						meta={`${wallet.lastMintQuote.amount ?? wallet.quoteAmount} ${
+							wallet.lastMintQuote.unit
+						}`}
+					/>
+				) : (
+					<EmptyState label="No active Lightning invoice" />
+				)}
+				{wallet.lastMintOperation ? (
+					<OperationPreview operation={wallet.lastMintOperation}>
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							disabled={wallet.busy !== null}
+							onClick={() =>
+								wallet.handleRefreshMintOperation(wallet.lastMintOperation!.id)
+							}
+						>
+							<RefreshCw />
+							Check settlement
+						</Button>
+					</OperationPreview>
+				) : null}
+			</div>
 		</div>
 	);
 }
@@ -1726,7 +1771,7 @@ function OperationPreview({
 			<div className="flex min-w-0 items-center justify-between gap-3">
 				<div className="min-w-0">
 					<div className="flex items-center gap-2">
-						<Badge>{operation.type}</Badge>
+						<Badge>{getOperationTypeLabel(operation.type)}</Badge>
 						<span className="truncate text-sm font-semibold">
 							{operation.state}
 						</span>
@@ -1813,7 +1858,7 @@ function OperationList({
 						<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 							<div className="min-w-0">
 								<div className="flex flex-wrap items-center gap-2">
-									<Badge>{operation.type}</Badge>
+									<Badge>{getOperationTypeLabel(operation.type)}</Badge>
 									<span className="text-sm font-medium">{operation.state}</span>
 									<span className="text-xs text-muted-foreground">
 										{formatAmount(operation.amount ?? "0")} {operation.unit}
@@ -1897,7 +1942,7 @@ function HistoryList({ history }: { history: WalletHistoryDto[] }) {
 					<CardContent className="flex items-center justify-between gap-3">
 						<div className="min-w-0">
 							<div className="flex items-center gap-2">
-								<Badge>{entry.type}</Badge>
+								<Badge>{getOperationTypeLabel(entry.type)}</Badge>
 								<span className="truncate text-sm font-medium">{entry.state}</span>
 							</div>
 							<p className="mt-1 truncate text-xs text-muted-foreground">
@@ -2090,6 +2135,22 @@ function isActionResult<TData>(
 	response: WalletSnapshot | WalletActionResult<TData>,
 ): response is WalletActionResult<TData> {
 	return "snapshot" in response;
+}
+
+function getOperationTypeLabel(type: WalletOperationDto["type"]) {
+	if (type === "mint") {
+		return "receive lightning";
+	}
+
+	if (type === "melt") {
+		return "send lightning";
+	}
+
+	if (type === "send") {
+		return "send ecash";
+	}
+
+	return "receive ecash";
 }
 
 function formatAmount(value: string) {
