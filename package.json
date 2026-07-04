@@ -14,9 +14,8 @@
 		"build:canary": "bun run build && electrobun build --env=canary"
 	},
 	"dependencies": {
-		"@cashu/coco-core": "file:/home/egge/projects/coco-feat-melt-watcher/packages/core",
-		"@cashu/coco-sql-storage": "file:/home/egge/projects/coco-feat-melt-watcher/packages/sql-storage",
-		"@cashu/coco-sqlite-bun": "file:/home/egge/projects/coco-feat-melt-watcher/packages/sqlite-bun",
+		"@cashu/coco-core": "rc",
+		"@cashu/coco-sqlite-bun": "rc",
 		"@fontsource-variable/jetbrains-mono": "^5.2.8",
 		"@tailwindcss/vite": "^4",
 		"class-variance-authority": "^0.7.1",
@@ -42,10 +41,5 @@
 		"concurrently": "^9.1.0",
 		"typescript": "~6",
 		"vite": "^8"
-	},
-	"overrides": {
-		"@cashu/coco-core": "file:/home/egge/projects/coco-feat-melt-watcher/packages/core",
-		"@cashu/coco-sql-storage": "file:/home/egge/projects/coco-feat-melt-watcher/packages/sql-storage",
-		"@cashu/coco-sqlite-bun": "file:/home/egge/projects/coco-feat-melt-watcher/packages/sqlite-bun"
 	}
 }
