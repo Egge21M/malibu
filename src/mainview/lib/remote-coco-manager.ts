@@ -17,6 +17,7 @@ import type {
 	ManagerMintWithKeysetsDto,
 	ManagerSendExecuteParams,
 	ManagerSendExecuteResultDto,
+	ManagerSendOperationEventName,
 	ManagerSendOperationDto,
 	ManagerSendOperationIdParams,
 	ManagerSendPrepareParams,
@@ -52,12 +53,6 @@ type RemoteManagerEventPayloads = Omit<
 		operation: RemoteSendOperation;
 	};
 };
-
-type ManagerSendOperationEventName =
-	| "send:prepared"
-	| "send:pending"
-	| "send:finalized"
-	| "send:rolled-back";
 
 type ManagerEventHandler<TEventName extends ManagerEventName> = (
 	payload: RemoteManagerEventPayloads[TEventName],
