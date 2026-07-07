@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import type {
+	ManagerBalanceScopeDto,
+	ManagerBalancesByMintAndUnitDto,
+	ManagerBalancesByMintDto,
+	ManagerBalancesByUnitDto,
 	ManagerEventDto,
 	ManagerMintDto,
 	ManagerMintWithKeysetsDto,
@@ -17,14 +21,65 @@ type RemoteMintManagerSurface = {
 		untrustMint: (mintUrl: string) => Promise<void>;
 		isTrustedMint: (mintUrl: string) => Promise<boolean>;
 	};
-	on: (
-		event: "mint:added" | "mint:updated",
-		handler: (payload: ManagerMintWithKeysetsDto) => void,
-	) => () => void;
-	off: (
-		event: "mint:added" | "mint:updated",
-		handler: (payload: ManagerMintWithKeysetsDto) => void,
-	) => void;
+	wallet: {
+		balances: {
+			byMint: (scope?: ManagerBalanceScopeDto) => Promise<BalancesByMint>;
+			byMintAndUnit: (
+				scope?: ManagerBalanceScopeDto,
+			) => Promise<BalancesByMintAndUnit>;
+			byUnit: (scope?: ManagerBalanceScopeDto) => Promise<BalancesByUnit>;
+			total: (scope?: ManagerBalanceScopeDto) => Promise<BalanceSnapshot>;
+			totalByUnit: (
+				scope?: ManagerBalanceScopeDto,
+			) => Promise<BalancesByUnit>;
+		};
+	};
+	on: {
+		(
+			event: "mint:added" | "mint:updated",
+			handler: (payload: ManagerMintWithKeysetsDto) => void,
+		): () => void;
+		(
+			event: "proofs:reserved",
+			handler: (payload: ProofsReservedEvent) => void,
+		): () => void;
+	};
+	off: {
+		(
+			event: "mint:added" | "mint:updated",
+			handler: (payload: ManagerMintWithKeysetsDto) => void,
+		): void;
+		(
+			event: "proofs:reserved",
+			handler: (payload: ProofsReservedEvent) => void,
+		): void;
+	};
+};
+
+type BalanceSnapshot = {
+	spendable: AmountLike;
+	reserved: AmountLike;
+	total: AmountLike;
+	unit: string;
+};
+
+type BalancesByMint = Record<string, BalanceSnapshot>;
+type BalancesByMintAndUnit = Record<string, Record<string, BalanceSnapshot>>;
+type BalancesByUnit = Record<string, BalanceSnapshot>;
+
+type AmountLike = {
+	add: (other: string) => AmountLike;
+	toString: () => string;
+};
+
+type ProofsReservedEvent = {
+	mintUrl: string;
+	operationId: string;
+	secrets: string[];
+	amount: {
+		amount: AmountLike;
+		unit: string;
+	};
 };
 
 function createFakeRpc() {
@@ -59,13 +114,43 @@ function createFakeRpc() {
 					calls.push(["managerMintIsTrustedMint", params]);
 					return true;
 				},
+				managerWalletBalancesByMint: async (params?: unknown) => {
+					calls.push(["managerWalletBalancesByMint", params]);
+					return {
+						"https://mint.example": balance("5", "1", "6", "sat"),
+					} satisfies ManagerBalancesByMintDto;
+				},
+				managerWalletBalancesByMintAndUnit: async (params?: unknown) => {
+					calls.push(["managerWalletBalancesByMintAndUnit", params]);
+					return {
+						"https://mint.example": {
+							sat: balance("5", "1", "6", "sat"),
+						},
+					} satisfies ManagerBalancesByMintAndUnitDto;
+				},
+				managerWalletBalancesByUnit: async (params?: unknown) => {
+					calls.push(["managerWalletBalancesByUnit", params]);
+					return {
+						sat: balance("5", "1", "6", "sat"),
+					} satisfies ManagerBalancesByUnitDto;
+				},
+				managerWalletBalancesTotal: async (params?: unknown) => {
+					calls.push(["managerWalletBalancesTotal", params]);
+					return balance("5", "1", "6", "sat");
+				},
+				managerWalletBalancesTotalByUnit: async (params?: unknown) => {
+					calls.push(["managerWalletBalancesTotalByUnit", params]);
+					return {
+						sat: balance("5", "1", "6", "sat"),
+					} satisfies ManagerBalancesByUnitDto;
+				},
 			},
 			send: {
-				managerMintEventSubscribe: (params: unknown) => {
-					calls.push(["managerMintEventSubscribe", params]);
+				managerEventSubscribe: (params: unknown) => {
+					calls.push(["managerEventSubscribe", params]);
 				},
-				managerMintEventUnsubscribe: (params: unknown) => {
-					calls.push(["managerMintEventUnsubscribe", params]);
+				managerEventUnsubscribe: (params: unknown) => {
+					calls.push(["managerEventUnsubscribe", params]);
 				},
 			},
 			addMessageListener(
@@ -120,6 +205,43 @@ describe("createRemoteCocoManager", () => {
 		]);
 	});
 
+	it("forwards scoped balance calls and rehydrates amount values", async () => {
+		const fake = createFakeRpc();
+		const manager = createRemoteCocoManager(
+			fake.rpc,
+		) as unknown as RemoteMintManagerSurface;
+		const scope = {
+			mintUrls: ["https://mint.example"],
+			units: ["sat"],
+			trustedOnly: true,
+		};
+
+		const byMint = await manager.wallet.balances.byMint(scope);
+		const byMintAndUnit = await manager.wallet.balances.byMintAndUnit(scope);
+		const byUnit = await manager.wallet.balances.byUnit(scope);
+		const total = await manager.wallet.balances.total(scope);
+		const totalByUnit = await manager.wallet.balances.totalByUnit(scope);
+
+		expect(
+			byMint["https://mint.example"]?.spendable.add("2").toString(),
+		).toBe("7");
+		expect(
+			byMintAndUnit["https://mint.example"]?.["sat"]?.reserved
+				.add("2")
+				.toString(),
+		).toBe("3");
+		expect(byUnit["sat"]?.total.add("2").toString()).toBe("8");
+		expect(total.spendable.add("2").toString()).toBe("7");
+		expect(totalByUnit["sat"]?.spendable.add("2").toString()).toBe("7");
+		expect(fake.calls).toEqual([
+			["managerWalletBalancesByMint", scope],
+			["managerWalletBalancesByMintAndUnit", scope],
+			["managerWalletBalancesByUnit", scope],
+			["managerWalletBalancesTotal", scope],
+			["managerWalletBalancesTotalByUnit", scope],
+		]);
+	});
+
 	it("delivers mint events through on, off, and unsubscribe behavior", () => {
 		const fake = createFakeRpc();
 		const manager = createRemoteCocoManager(
@@ -156,8 +278,8 @@ describe("createRemoteCocoManager", () => {
 		]);
 		expect(fake.calls).toEqual([
 			["addMessageListener", "managerEvent"],
-			["managerMintEventSubscribe", { event: "mint:added" }],
-			["managerMintEventUnsubscribe", { event: "mint:added" }],
+			["managerEventSubscribe", { event: "mint:added" }],
+			["managerEventUnsubscribe", { event: "mint:added" }],
 			["removeMessageListener", "managerEvent"],
 		]);
 
@@ -166,8 +288,39 @@ describe("createRemoteCocoManager", () => {
 		unsubscribe();
 		expect(fake.calls.slice(-4)).toEqual([
 			["addMessageListener", "managerEvent"],
-			["managerMintEventSubscribe", { event: "mint:updated" }],
-			["managerMintEventUnsubscribe", { event: "mint:updated" }],
+			["managerEventSubscribe", { event: "mint:updated" }],
+			["managerEventUnsubscribe", { event: "mint:updated" }],
+			["removeMessageListener", "managerEvent"],
+		]);
+	});
+
+	it("delivers proof balance refresh events with rehydrated amounts", () => {
+		const fake = createFakeRpc();
+		const manager = createRemoteCocoManager(
+			fake.rpc,
+		) as unknown as RemoteMintManagerSurface;
+		const received: ProofsReservedEvent[] = [];
+		const handler = (payload: ProofsReservedEvent) => {
+			received.push(payload);
+		};
+
+		const unsubscribe = manager.on("proofs:reserved", handler);
+		fake.emit({
+			event: "proofs:reserved",
+			payload: {
+				mintUrl: "https://mint.example",
+				operationId: "op-1",
+				secrets: ["secret-1"],
+				amount: { amount: "5", unit: "sat" },
+			},
+		});
+		unsubscribe();
+
+		expect(received[0]?.amount.amount.add("2").toString()).toBe("7");
+		expect(fake.calls).toEqual([
+			["addMessageListener", "managerEvent"],
+			["managerEventSubscribe", { event: "proofs:reserved" }],
+			["managerEventUnsubscribe", { event: "proofs:reserved" }],
 			["removeMessageListener", "managerEvent"],
 		]);
 	});
@@ -187,8 +340,8 @@ describe("createRemoteCocoManager", () => {
 
 		expect(fake.calls).toEqual([
 			["addMessageListener", "managerEvent"],
-			["managerMintEventSubscribe", { event: "mint:added" }],
-			["managerMintEventUnsubscribe", { event: "mint:added" }],
+			["managerEventSubscribe", { event: "mint:added" }],
+			["managerEventUnsubscribe", { event: "mint:added" }],
 			["removeMessageListener", "managerEvent"],
 		]);
 	});
@@ -198,8 +351,14 @@ describe("createRemoteCocoManager", () => {
 			createFakeRpc().rpc,
 		) as unknown as RemoteMintManagerSurface;
 
-		expect(() => (manager as unknown as Record<string, unknown>)["wallet"]).toThrow(
-			'Remote Coco manager does not support "wallet" yet',
+		expect(
+			() => (manager as unknown as Record<string, unknown>)["history"],
+		).toThrow('Remote Coco manager does not support "history" yet');
+		expect(
+			() =>
+				(manager.wallet as unknown as Record<string, unknown>)["restore"],
+		).toThrow(
+			'Remote Coco manager wallet API does not support "restore" yet',
 		);
 		expect(
 			() => (manager.mint as unknown as Record<string, unknown>)["getMintInfo"],
@@ -217,5 +376,19 @@ function mint(mintUrl: string) {
 		trusted: true,
 		createdAt: 1,
 		updatedAt: 2,
+	};
+}
+
+function balance(
+	spendable: string,
+	reserved: string,
+	total: string,
+	unit: string,
+) {
+	return {
+		spendable,
+		reserved,
+		total,
+		unit,
 	};
 }

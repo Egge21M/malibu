@@ -1,6 +1,6 @@
 import { BrowserView, BrowserWindow, Updater } from "electrobun/bun";
 import {
-	createManagerMintEventForwarder,
+	createManagerEventForwarder,
 	createManagerRpcRequestHandlers,
 } from "./manager-rpc.ts";
 import { CashuWalletService } from "./wallet-service.ts";
@@ -31,7 +31,7 @@ const walletService = new CashuWalletService();
 const managerRpcRequestHandlers = createManagerRpcRequestHandlers(() =>
 	walletService.getCocoManager(),
 );
-const managerMintEventForwarder = createManagerMintEventForwarder(
+const managerEventForwarder = createManagerEventForwarder(
 	() => walletService.getCocoManager(),
 	(event) => walletRpc.send.managerEvent(event),
 );
@@ -55,6 +55,25 @@ const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 			managerMintIsTrustedMint: async (params) => {
 				return managerRpcRequestHandlers.managerMintIsTrustedMint(params);
 			},
+			managerWalletBalancesByMint: async (params) => {
+				return managerRpcRequestHandlers.managerWalletBalancesByMint(params);
+			},
+			managerWalletBalancesByMintAndUnit: async (params) => {
+				return managerRpcRequestHandlers.managerWalletBalancesByMintAndUnit(
+					params,
+				);
+			},
+			managerWalletBalancesByUnit: async (params) => {
+				return managerRpcRequestHandlers.managerWalletBalancesByUnit(params);
+			},
+			managerWalletBalancesTotal: async (params) => {
+				return managerRpcRequestHandlers.managerWalletBalancesTotal(params);
+			},
+			managerWalletBalancesTotalByUnit: async (params) => {
+				return managerRpcRequestHandlers.managerWalletBalancesTotalByUnit(
+					params,
+				);
+			},
 			snapshot: () => walletService.snapshot(),
 			addMint: (params) => walletService.addMint(params),
 			restoreMint: (params) => walletService.restoreMint(params),
@@ -75,10 +94,9 @@ const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 				walletService.refreshMeltOperation(params),
 		},
 		messages: {
-			managerMintEventSubscribe: (params) =>
-				managerMintEventForwarder.subscribe(params),
-			managerMintEventUnsubscribe: (params) =>
-				managerMintEventForwarder.unsubscribe(params),
+			managerEventSubscribe: (params) => managerEventForwarder.subscribe(params),
+			managerEventUnsubscribe: (params) =>
+				managerEventForwarder.unsubscribe(params),
 		},
 	},
 });

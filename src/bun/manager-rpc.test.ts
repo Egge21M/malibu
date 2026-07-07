@@ -1,12 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import {
-	createManagerMintEventForwarder,
+	createManagerEventForwarder,
 	createManagerRpcRequestHandlers,
 	type ManagerRpcManagerLike,
 } from "./manager-rpc.ts";
 import type {
-	ManagerMintEventName,
-	ManagerMintEventPayloads,
+	ManagerEventName,
 } from "../mainview/lib/manager-rpc.ts";
 
 describe("manager RPC handlers", () => {
@@ -32,6 +31,51 @@ describe("manager RPC handlers", () => {
 		await expect(
 			handlers.managerMintIsTrustedMint({ mintUrl: "https://mint.example" }),
 		).resolves.toBe(true);
+		await expect(
+			handlers.managerWalletBalancesByMint({
+				mintUrls: ["https://mint.example"],
+				units: ["sat"],
+				trustedOnly: true,
+			}),
+		).resolves.toEqual({
+			"https://mint.example": serializedBalance("sat"),
+		});
+		await expect(
+			handlers.managerWalletBalancesByMintAndUnit({
+				mintUrls: ["https://mint.example"],
+				units: ["sat"],
+				trustedOnly: true,
+			}),
+		).resolves.toEqual({
+			"https://mint.example": {
+				sat: serializedBalance("sat"),
+			},
+		});
+		await expect(
+			handlers.managerWalletBalancesByUnit({
+				mintUrls: ["https://mint.example"],
+				units: ["sat"],
+				trustedOnly: true,
+			}),
+		).resolves.toEqual({
+			sat: serializedBalance("sat"),
+		});
+		await expect(
+			handlers.managerWalletBalancesTotal({
+				mintUrls: ["https://mint.example"],
+				units: ["sat"],
+				trustedOnly: true,
+			}),
+		).resolves.toEqual(serializedBalance("sat"));
+		await expect(
+			handlers.managerWalletBalancesTotalByUnit({
+				mintUrls: ["https://mint.example"],
+				units: ["sat"],
+				trustedOnly: true,
+			}),
+		).resolves.toEqual({
+			sat: serializedBalance("sat"),
+		});
 
 		expect(calls).toEqual([
 			["getAllMints"],
@@ -39,6 +83,46 @@ describe("manager RPC handlers", () => {
 			["trustMint", "https://mint.example"],
 			["untrustMint", "https://mint.example"],
 			["isTrustedMint", "https://mint.example"],
+			[
+				"balances.byMint",
+				{
+					mintUrls: ["https://mint.example"],
+					units: ["sat"],
+					trustedOnly: true,
+				},
+			],
+			[
+				"balances.byMintAndUnit",
+				{
+					mintUrls: ["https://mint.example"],
+					units: ["sat"],
+					trustedOnly: true,
+				},
+			],
+			[
+				"balances.byUnit",
+				{
+					mintUrls: ["https://mint.example"],
+					units: ["sat"],
+					trustedOnly: true,
+				},
+			],
+			[
+				"balances.total",
+				{
+					mintUrls: ["https://mint.example"],
+					units: ["sat"],
+					trustedOnly: true,
+				},
+			],
+			[
+				"balances.totalByUnit",
+				{
+					mintUrls: ["https://mint.example"],
+					units: ["sat"],
+					trustedOnly: true,
+				},
+			],
 		]);
 	});
 
@@ -46,7 +130,7 @@ describe("manager RPC handlers", () => {
 		const calls: unknown[] = [];
 		const emitted: unknown[] = [];
 		const manager = createFakeManager(calls);
-		const forwarder = createManagerMintEventForwarder(
+		const forwarder = createManagerEventForwarder(
 			async () => manager,
 			(event) => emitted.push(event),
 		);
@@ -80,11 +164,51 @@ describe("manager RPC handlers", () => {
 		]);
 	});
 
+	it("forwards subscribed proof balance refresh events with serializable amounts", async () => {
+		const calls: unknown[] = [];
+		const emitted: unknown[] = [];
+		const manager = createFakeManager(calls);
+		const forwarder = createManagerEventForwarder(
+			async () => manager,
+			(event) => emitted.push(event),
+		);
+
+		forwarder.subscribe({ event: "proofs:reserved" });
+		await Promise.resolve();
+
+		manager.emit("proofs:reserved", {
+			mintUrl: "https://mint.example",
+			operationId: "op-1",
+			secrets: ["secret-1"],
+			amount: { amount: amountLike("5"), unit: "sat" },
+		});
+		forwarder.unsubscribe({ event: "proofs:reserved" });
+
+		expect(emitted).toEqual([
+			{
+				event: "proofs:reserved",
+				payload: {
+					mintUrl: "https://mint.example",
+					operationId: "op-1",
+					secrets: ["secret-1"],
+					amount: { amount: "5", unit: "sat" },
+				},
+			},
+		]);
+		expect(JSON.stringify(emitted)).toBe(
+			'[{"event":"proofs:reserved","payload":{"mintUrl":"https://mint.example","operationId":"op-1","secrets":["secret-1"],"amount":{"amount":"5","unit":"sat"}}}]',
+		);
+		expect(calls).toEqual([
+			["on", "proofs:reserved"],
+			["off", "proofs:reserved"],
+		]);
+	});
+
 	it("keeps one manager event subscription for multiple renderer listeners", async () => {
 		const calls: unknown[] = [];
 		const emitted: unknown[] = [];
 		const manager = createFakeManager(calls);
-		const forwarder = createManagerMintEventForwarder(
+		const forwarder = createManagerEventForwarder(
 			async () => manager,
 			(event) => emitted.push(event),
 		);
@@ -111,7 +235,7 @@ describe("manager RPC handlers", () => {
 });
 
 function createFakeManager(calls: unknown[]) {
-	const listeners = new Map<ManagerMintEventName, Set<(payload: never) => void>>();
+	const listeners = new Map<ManagerEventName, Set<(payload: never) => void>>();
 	const manager = {
 		mint: {
 			getAllMints: async () => {
@@ -136,9 +260,43 @@ function createFakeManager(calls: unknown[]) {
 				return true;
 			},
 		},
-		on<TEventName extends ManagerMintEventName>(
+		wallet: {
+			balances: {
+				byMint: async (scope?: unknown) => {
+					calls.push(["balances.byMint", scope]);
+					return {
+						"https://mint.example": rawBalance("sat"),
+					};
+				},
+				byMintAndUnit: async (scope?: unknown) => {
+					calls.push(["balances.byMintAndUnit", scope]);
+					return {
+						"https://mint.example": {
+							sat: rawBalance("sat"),
+						},
+					};
+				},
+				byUnit: async (scope?: unknown) => {
+					calls.push(["balances.byUnit", scope]);
+					return {
+						sat: rawBalance("sat"),
+					};
+				},
+				total: async (scope?: unknown) => {
+					calls.push(["balances.total", scope]);
+					return rawBalance("sat");
+				},
+				totalByUnit: async (scope?: unknown) => {
+					calls.push(["balances.totalByUnit", scope]);
+					return {
+						sat: rawBalance("sat"),
+					};
+				},
+			},
+		},
+		on<TEventName extends ManagerEventName>(
 			event: TEventName,
-			handler: (payload: ManagerMintEventPayloads[TEventName]) => void,
+			handler: (payload: unknown) => void,
 		) {
 			calls.push(["on", event]);
 			const eventListeners = listeners.get(event) ?? new Set();
@@ -149,9 +307,9 @@ function createFakeManager(calls: unknown[]) {
 				eventListeners.delete(handler as (payload: never) => void);
 			};
 		},
-		emit<TEventName extends ManagerMintEventName>(
+		emit<TEventName extends ManagerEventName>(
 			event: TEventName,
-			payload: ManagerMintEventPayloads[TEventName],
+			payload: unknown,
 		) {
 			for (const listener of listeners.get(event) ?? []) {
 				listener(payload as never);
@@ -160,9 +318,9 @@ function createFakeManager(calls: unknown[]) {
 	};
 
 	return manager satisfies ManagerRpcManagerLike & {
-		emit: <TEventName extends ManagerMintEventName>(
+		emit: <TEventName extends ManagerEventName>(
 			event: TEventName,
-			payload: ManagerMintEventPayloads[TEventName],
+			payload: unknown,
 		) => void;
 	};
 }
@@ -210,5 +368,30 @@ function serializedKeyset(mintUrl: string) {
 		active: true,
 		feePpk: 0,
 		updatedAt: 3,
+	};
+}
+
+function rawBalance(unit: string) {
+	return {
+		spendable: amountLike("5"),
+		reserved: amountLike("1"),
+		total: amountLike("6"),
+		unit,
+	};
+}
+
+function serializedBalance(unit: string) {
+	return {
+		spendable: "5",
+		reserved: "1",
+		total: "6",
+		unit,
+	};
+}
+
+function amountLike(value: string) {
+	return {
+		toJSON: () => value,
+		toString: () => value,
 	};
 }

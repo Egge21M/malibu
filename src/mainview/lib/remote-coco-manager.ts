@@ -1,17 +1,22 @@
-import type { Manager } from "@cashu/coco-core";
+import { Amount, type Manager } from "@cashu/coco-core";
 import type {
 	ManagerAddMintParams,
+	ManagerBalanceScopeDto,
+	ManagerBalanceSnapshotDto,
+	ManagerBalancesByMintAndUnitDto,
+	ManagerBalancesByMintDto,
+	ManagerBalancesByUnitDto,
 	ManagerEventDto,
+	ManagerEventName,
+	ManagerEventPayloads,
 	ManagerMintDto,
-	ManagerMintEventName,
-	ManagerMintEventPayloads,
-	ManagerMintEventSubscriptionDto,
+	ManagerEventSubscriptionDto,
 	ManagerMintUrlParams,
 	ManagerMintWithKeysetsDto,
 } from "@/lib/manager-rpc";
 
-type ManagerEventHandler<TEventName extends ManagerMintEventName> = (
-	payload: ManagerMintEventPayloads[TEventName],
+type ManagerEventHandler<TEventName extends ManagerEventName> = (
+	payload: ManagerEventPayloads[TEventName],
 ) => void | Promise<void>;
 
 type RemoteManagerRpc = {
@@ -23,14 +28,25 @@ type RemoteManagerRpc = {
 		managerMintTrustMint: (params: ManagerMintUrlParams) => Promise<void>;
 		managerMintUntrustMint: (params: ManagerMintUrlParams) => Promise<void>;
 		managerMintIsTrustedMint: (params: ManagerMintUrlParams) => Promise<boolean>;
+		managerWalletBalancesByMint: (
+			params?: ManagerBalanceScopeDto,
+		) => Promise<ManagerBalancesByMintDto>;
+		managerWalletBalancesByMintAndUnit: (
+			params?: ManagerBalanceScopeDto,
+		) => Promise<ManagerBalancesByMintAndUnitDto>;
+		managerWalletBalancesByUnit: (
+			params?: ManagerBalanceScopeDto,
+		) => Promise<ManagerBalancesByUnitDto>;
+		managerWalletBalancesTotal: (
+			params?: ManagerBalanceScopeDto,
+		) => Promise<ManagerBalanceSnapshotDto>;
+		managerWalletBalancesTotalByUnit: (
+			params?: ManagerBalanceScopeDto,
+		) => Promise<ManagerBalancesByUnitDto>;
 	};
 	send: {
-		managerMintEventSubscribe: (
-			payload: ManagerMintEventSubscriptionDto,
-		) => void;
-		managerMintEventUnsubscribe: (
-			payload: ManagerMintEventSubscriptionDto,
-		) => void;
+		managerEventSubscribe: (payload: ManagerEventSubscriptionDto) => void;
+		managerEventUnsubscribe: (payload: ManagerEventSubscriptionDto) => void;
 	};
 	addMessageListener: (
 		message: "managerEvent",
@@ -44,8 +60,8 @@ type RemoteManagerRpc = {
 
 class RemoteCocoManager {
 	private readonly listeners = new Map<
-		ManagerMintEventName,
-		Set<ManagerEventHandler<ManagerMintEventName>>
+		ManagerEventName,
+		Set<ManagerEventHandler<ManagerEventName>>
 	>();
 	private listeningToRpc = false;
 
@@ -61,37 +77,62 @@ class RemoteCocoManager {
 			this.rpc.request.managerMintIsTrustedMint({ mintUrl }),
 	});
 
+	readonly wallet = unsupportedAwareObject("Remote Coco manager wallet API", {
+		balances: unsupportedAwareObject("Remote Coco manager balance API", {
+			byMint: async (scope?: ManagerBalanceScopeDto) =>
+				rehydrateBalancesByMint(
+					await this.rpc.request.managerWalletBalancesByMint(scope),
+				),
+			byMintAndUnit: async (scope?: ManagerBalanceScopeDto) =>
+				rehydrateBalancesByMintAndUnit(
+					await this.rpc.request.managerWalletBalancesByMintAndUnit(scope),
+				),
+			byUnit: async (scope?: ManagerBalanceScopeDto) =>
+				rehydrateBalancesByUnit(
+					await this.rpc.request.managerWalletBalancesByUnit(scope),
+				),
+			total: async (scope?: ManagerBalanceScopeDto) =>
+				rehydrateBalanceSnapshot(
+					await this.rpc.request.managerWalletBalancesTotal(scope),
+				),
+			totalByUnit: async (scope?: ManagerBalanceScopeDto) =>
+				rehydrateBalancesByUnit(
+					await this.rpc.request.managerWalletBalancesTotalByUnit(scope),
+				),
+		}),
+	});
+
 	constructor(private readonly rpc: RemoteManagerRpc) {}
 
-	on<TEventName extends ManagerMintEventName>(
+	on<TEventName extends ManagerEventName>(
 		event: TEventName,
 		handler: ManagerEventHandler<TEventName>,
 	): () => void {
 		this.ensureRpcEventListener();
 		const listeners = this.listeners.get(event) ?? new Set();
 		const shouldSubscribe = listeners.size === 0;
-		listeners.add(handler as ManagerEventHandler<ManagerMintEventName>);
+		listeners.add(handler as ManagerEventHandler<ManagerEventName>);
 		this.listeners.set(event, listeners);
 		if (shouldSubscribe) {
-			this.rpc.send.managerMintEventSubscribe({ event });
+			this.rpc.send.managerEventSubscribe({ event });
 		}
 
 		return () => this.off(event, handler);
 	}
 
-	off<TEventName extends ManagerMintEventName>(
+	off<TEventName extends ManagerEventName>(
 		event: TEventName,
 		handler: ManagerEventHandler<TEventName>,
 	): void {
 		const listeners = this.listeners.get(event);
 		const hadHandler = listeners?.has(
-			handler as ManagerEventHandler<ManagerMintEventName>,
+			handler as ManagerEventHandler<ManagerEventName>,
 		);
-		listeners?.delete(handler as ManagerEventHandler<ManagerMintEventName>);
+		listeners?.delete(handler as ManagerEventHandler<ManagerEventName>);
 		if (listeners?.size === 0) {
 			this.listeners.delete(event);
 			if (hadHandler) {
-				this.rpc.send.managerMintEventUnsubscribe({ event });
+				this.rpc.send.managerEventUnsubscribe({ event });
 			}
 		}
 		this.stopRpcEventListenerIfIdle();
@@ -121,16 +162,84 @@ class RemoteCocoManager {
 			return;
 		}
 
+		const payload = rehydrateManagerEventPayload(event);
 		for (const listener of listeners) {
-			void listener(event.payload);
+			void listener(payload as ManagerEventPayloads[ManagerEventName]);
 		}
 	};
 }
 
 export function createRemoteCocoManager(rpc: RemoteManagerRpc): Manager {
 	return unsupportedAwareObject("Remote Coco manager", new RemoteCocoManager(rpc), {
-		allowProperties: new Set(["mint", "on", "off"]),
+		allowProperties: new Set(["mint", "wallet", "on", "off"]),
 	}) as unknown as Manager;
+}
+
+function rehydrateBalancesByMint(balances: ManagerBalancesByMintDto) {
+	return Object.fromEntries(
+		Object.entries(balances).map(([mintUrl, balance]) => [
+			mintUrl,
+			rehydrateBalanceSnapshot(balance),
+		]),
+	);
+}
+
+function rehydrateBalancesByMintAndUnit(
+	balances: ManagerBalancesByMintAndUnitDto,
+) {
+	return Object.fromEntries(
+		Object.entries(balances).map(([mintUrl, unitBalances]) => [
+			mintUrl,
+			Object.fromEntries(
+				Object.entries(unitBalances).map(([unit, balance]) => [
+					unit,
+					rehydrateBalanceSnapshot(balance),
+				]),
+			),
+		]),
+	);
+}
+
+function rehydrateBalancesByUnit(balances: ManagerBalancesByUnitDto) {
+	return Object.fromEntries(
+		Object.entries(balances).map(([unit, balance]) => [
+			unit,
+			rehydrateBalanceSnapshot(balance),
+		]),
+	);
+}
+
+function rehydrateBalanceSnapshot(balance: ManagerBalanceSnapshotDto) {
+	return {
+		spendable: Amount.from(balance.spendable),
+		reserved: Amount.from(balance.reserved),
+		total: Amount.from(balance.total),
+		unit: balance.unit,
+	};
+}
+
+function rehydrateManagerEventPayload(event: ManagerEventDto) {
+	if (event.event === "proofs:saved") {
+		return {
+			...event.payload,
+			proofs: event.payload.proofs.map((proof) => ({
+				...proof,
+				amount: Amount.from(proof.amount),
+			})),
+		};
+	}
+
+	if (event.event === "proofs:reserved") {
+		return {
+			...event.payload,
+			amount: {
+				...event.payload.amount,
+				amount: Amount.from(event.payload.amount.amount),
+			},
+		};
+	}
+
+	return event.payload;
 }
 
 function unsupportedAwareObject<TTarget extends object>(
