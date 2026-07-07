@@ -15,6 +15,7 @@
 		"build:canary": "bun run build && electrobun build --env=canary"
 	},
 	"dependencies": {
+		"@base-ui/react": "^1.6.0",
 		"@cashu/coco-core": "rc",
 		"@cashu/coco-react": "rc",
 		"@cashu/coco-sqlite-bun": "rc",
@@ -25,7 +26,6 @@
 		"clsx": "^2.1.1",
 		"electrobun": "1.18.1",
 		"lucide-react": "^1.22.0",
-		"radix-ui": "^1.6.0",
 		"react": "^19.2.7",
 		"react-dom": "^19.2.7",
 		"react-router": "^8.1.0",

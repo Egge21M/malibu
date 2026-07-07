@@ -1172,15 +1172,12 @@ function OverviewScreen() {
 						<Badge variant="secondary">{wallet.history.length}</Badge>
 					</h3>
 					<Button
-						asChild
-						type="button"
+						render={<NavLink to="/activity" />}
 						variant="outline"
 						size="sm"
 					>
-						<NavLink to="/activity">
-							<History />
-							View all
-						</NavLink>
+						<History />
+						View all
 					</Button>
 				</div>
 				<HistoryList history={recentHistory} />
@@ -1996,7 +1993,14 @@ function MintPicker({
 	}
 
 	return (
-		<Select value={value} onValueChange={onChange}>
+		<Select
+			value={value}
+			onValueChange={(nextValue) => {
+				if (nextValue !== null) {
+					onChange(nextValue);
+				}
+			}}
+		>
 			<SelectTrigger className="w-full">
 				<SelectValue placeholder="Select mint" />
 			</SelectTrigger>
