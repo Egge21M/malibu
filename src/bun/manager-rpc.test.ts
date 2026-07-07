@@ -1,13 +1,25 @@
 import { describe, expect, it } from "bun:test";
 import {
+	createManagerHistoryEventForwarder,
 	createManagerMintEventForwarder,
 	createManagerRpcRequestHandlers,
 	type ManagerRpcManagerLike,
 } from "./manager-rpc.ts";
 import type {
-	ManagerMintEventName,
-	ManagerMintEventPayloads,
+	ManagerEventName,
+	ManagerEventPayloads,
+	ManagerHistoryEntryDto,
 } from "../mainview/lib/manager-rpc.ts";
+
+type FakeManagerEventPayloads = Omit<
+	ManagerEventPayloads,
+	"history:updated"
+> & {
+	"history:updated": {
+		mintUrl: string;
+		entry: ReturnType<typeof rawHistoryEntry>;
+	};
+};
 
 describe("manager RPC handlers", () => {
 	it("maps mint requests to a manager-like object and serializes responses", async () => {
@@ -32,6 +44,9 @@ describe("manager RPC handlers", () => {
 		await expect(
 			handlers.managerMintIsTrustedMint({ mintUrl: "https://mint.example" }),
 		).resolves.toBe(true);
+		await expect(
+			handlers.managerHistoryGetPaginatedHistory({ offset: 10, limit: 5 }),
+		).resolves.toEqual([serializedHistoryEntry("history-1", "123")]);
 
 		expect(calls).toEqual([
 			["getAllMints"],
@@ -39,6 +54,7 @@ describe("manager RPC handlers", () => {
 			["trustMint", "https://mint.example"],
 			["untrustMint", "https://mint.example"],
 			["isTrustedMint", "https://mint.example"],
+			["getPaginatedHistory", 10, 5],
 		]);
 	});
 
@@ -108,10 +124,47 @@ describe("manager RPC handlers", () => {
 			["off", "mint:trusted"],
 		]);
 	});
+
+	it("forwards subscribed history manager events with serialized entries", async () => {
+		const calls: unknown[] = [];
+		const emitted: unknown[] = [];
+		const manager = createFakeManager(calls);
+		const forwarder = createManagerHistoryEventForwarder(
+			async () => manager,
+			(event) => emitted.push(event),
+		);
+
+		forwarder.subscribe({ event: "history:updated" });
+		await Promise.resolve();
+
+		manager.emit("history:updated", {
+			mintUrl: "https://mint.example",
+			entry: rawHistoryEntry("history-2", 456n),
+		});
+		forwarder.unsubscribe({ event: "history:updated" });
+		manager.emit("history:updated", {
+			mintUrl: "https://mint.example",
+			entry: rawHistoryEntry("history-ignored", 1n),
+		});
+
+		expect(emitted).toEqual([
+			{
+				event: "history:updated",
+				payload: {
+					mintUrl: "https://mint.example",
+					entry: serializedHistoryEntry("history-2", "456"),
+				},
+			},
+		]);
+		expect(calls).toEqual([
+			["on", "history:updated"],
+			["off", "history:updated"],
+		]);
+	});
 });
 
 function createFakeManager(calls: unknown[]) {
-	const listeners = new Map<ManagerMintEventName, Set<(payload: never) => void>>();
+	const listeners = new Map<ManagerEventName, Set<(payload: never) => void>>();
 	const manager = {
 		mint: {
 			getAllMints: async () => {
@@ -136,9 +189,15 @@ function createFakeManager(calls: unknown[]) {
 				return true;
 			},
 		},
-		on<TEventName extends ManagerMintEventName>(
+		history: {
+			getPaginatedHistory: async (offset?: number, limit?: number) => {
+				calls.push(["getPaginatedHistory", offset, limit]);
+				return [rawHistoryEntry("history-1", 123n)];
+			},
+		},
+		on<TEventName extends ManagerEventName>(
 			event: TEventName,
-			handler: (payload: ManagerMintEventPayloads[TEventName]) => void,
+			handler: (payload: FakeManagerEventPayloads[TEventName]) => void,
 		) {
 			calls.push(["on", event]);
 			const eventListeners = listeners.get(event) ?? new Set();
@@ -149,9 +208,9 @@ function createFakeManager(calls: unknown[]) {
 				eventListeners.delete(handler as (payload: never) => void);
 			};
 		},
-		emit<TEventName extends ManagerMintEventName>(
+		emit<TEventName extends ManagerEventName>(
 			event: TEventName,
-			payload: ManagerMintEventPayloads[TEventName],
+			payload: FakeManagerEventPayloads[TEventName],
 		) {
 			for (const listener of listeners.get(event) ?? []) {
 				listener(payload as never);
@@ -160,9 +219,9 @@ function createFakeManager(calls: unknown[]) {
 	};
 
 	return manager satisfies ManagerRpcManagerLike & {
-		emit: <TEventName extends ManagerMintEventName>(
+		emit: <TEventName extends ManagerEventName>(
 			event: TEventName,
-			payload: ManagerMintEventPayloads[TEventName],
+			payload: FakeManagerEventPayloads[TEventName],
 		) => void;
 	};
 }
@@ -210,5 +269,47 @@ function serializedKeyset(mintUrl: string) {
 		active: true,
 		feePpk: 0,
 		updatedAt: 3,
+	};
+}
+
+function rawHistoryEntry(id: string, amount: unknown) {
+	return {
+		id,
+		type: "send" as const,
+		source: "operation" as const,
+		operationId: "send-1",
+		state: "finalized",
+		mintUrl: "https://mint.example",
+		unit: "sat",
+		amount,
+		metadata: { memo: "remote history" },
+		token: { token: [{ mint: "https://mint.example", proofs: [] }] },
+		createdAt: 10,
+		updatedAt: 11,
+	};
+}
+
+function serializedHistoryEntry(
+	id: string,
+	amount: string,
+): ManagerHistoryEntryDto {
+	return {
+		id,
+		type: "send",
+		source: "operation",
+		operationId: "send-1",
+		state: "finalized",
+		mintUrl: "https://mint.example",
+		unit: "sat",
+		amount,
+		metadata: { memo: "remote history" },
+		error: undefined,
+		legacyHistoryId: undefined,
+		paymentRequest: undefined,
+		quoteId: undefined,
+		remoteState: undefined,
+		token: { token: [{ mint: "https://mint.example", proofs: [] }] },
+		createdAt: 10,
+		updatedAt: 11,
 	};
 }

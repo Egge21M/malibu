@@ -1,11 +1,14 @@
 import type {
 	ManagerAddMintParams,
 	ManagerEventDto,
+	ManagerEventName,
+	ManagerEventPayloads,
 	ManagerKeysetDto,
+	ManagerHistoryEntryDto,
+	ManagerHistoryEventName,
+	ManagerHistoryPaginationParams,
 	ManagerMintDto,
 	ManagerMintEventName,
-	ManagerMintEventPayloads,
-	ManagerMintEventSubscriptionDto,
 	ManagerMintUrlParams,
 	ManagerMintWithKeysetsDto,
 } from "../mainview/lib/manager-rpc.ts";
@@ -43,11 +46,33 @@ type ManagerMintApiLike = {
 	isTrustedMint: (mintUrl: string) => Promise<boolean>;
 };
 
+type ManagerHistoryEntryLike = Omit<ManagerHistoryEntryDto, "amount"> & {
+	amount: unknown;
+};
+
+type ManagerHistoryApiLike = {
+	getPaginatedHistory: (
+		offset?: number,
+		limit?: number,
+	) => Promise<ManagerHistoryEntryLike[]>;
+};
+
+type ManagerRpcManagerEventPayloads = Omit<
+	ManagerEventPayloads,
+	"history:updated"
+> & {
+	"history:updated": {
+		mintUrl: string;
+		entry: ManagerHistoryEntryLike;
+	};
+};
+
 export type ManagerRpcManagerLike = {
 	mint: ManagerMintApiLike;
-	on: <TEventName extends ManagerMintEventName>(
+	history: ManagerHistoryApiLike;
+	on: <TEventName extends ManagerEventName>(
 		event: TEventName,
-		handler: (payload: ManagerMintEventPayloads[TEventName]) => void,
+		handler: (payload: ManagerRpcManagerEventPayloads[TEventName]) => void,
 	) => () => void;
 };
 
@@ -59,6 +84,9 @@ type ManagerRpcRequestHandlers = {
 	managerMintTrustMint: (params: ManagerMintUrlParams) => Promise<void>;
 	managerMintUntrustMint: (params: ManagerMintUrlParams) => Promise<void>;
 	managerMintIsTrustedMint: (params: ManagerMintUrlParams) => Promise<boolean>;
+	managerHistoryGetPaginatedHistory: (
+		params: ManagerHistoryPaginationParams,
+	) => Promise<ManagerHistoryEntryDto[]>;
 };
 
 export function createManagerRpcRequestHandlers(
@@ -88,21 +116,59 @@ export function createManagerRpcRequestHandlers(
 			const manager = await getManager();
 			return manager.mint.isTrustedMint(mintUrl);
 		},
+		managerHistoryGetPaginatedHistory: async ({ offset, limit }) => {
+			const manager = await getManager();
+			const entries = await manager.history.getPaginatedHistory(offset, limit);
+			return entries.map(serializeHistoryEntry);
+		},
 	};
 }
 
 export function createManagerMintEventForwarder(
 	getManager: () => Promise<ManagerRpcManagerLike>,
-	emit: (event: ManagerEventDto) => void,
+	emit: <TEventName extends ManagerEventName>(
+		event: ManagerEventDto<TEventName>,
+	) => void,
 ) {
-	const subscriptionCounts = new Map<ManagerMintEventName, number>();
-	const offHandlers = new Map<ManagerMintEventName, () => void>();
-	const pendingSubscriptions = new Map<ManagerMintEventName, Promise<void>>();
+	return createManagerEventForwarder<ManagerMintEventName>(
+		getManager,
+		emit,
+		serializeManagerEvent,
+	);
+}
+
+export function createManagerHistoryEventForwarder(
+	getManager: () => Promise<ManagerRpcManagerLike>,
+	emit: <TEventName extends ManagerEventName>(
+		event: ManagerEventDto<TEventName>,
+	) => void,
+) {
+	return createManagerEventForwarder<ManagerHistoryEventName>(
+		getManager,
+		emit,
+		serializeManagerEvent,
+	);
+}
+
+function createManagerEventForwarder<TEventName extends ManagerEventName>(
+	getManager: () => Promise<ManagerRpcManagerLike>,
+	emit: <TName extends ManagerEventName>(event: ManagerEventDto<TName>) => void,
+	serializeEvent: <TName extends ManagerEventName>(
+		event: TName,
+		payload: ManagerRpcManagerEventPayloads[TName],
+	) => ManagerEventDto<TName>,
+) {
+	const subscriptionCounts = new Map<TEventName, number>();
+	const offHandlers = new Map<TEventName, () => void>();
+	const pendingSubscriptions = new Map<TEventName, Promise<void>>();
 
 	return {
-		subscribe: ({ event }: ManagerMintEventSubscriptionDto) => {
+		subscribe: (
+			{ event }: { event: TEventName },
+		) => {
+			const eventName = event;
 			subscriptionCounts.set(event, (subscriptionCounts.get(event) ?? 0) + 1);
-			if (offHandlers.has(event) || pendingSubscriptions.has(event)) {
+			if (offHandlers.has(eventName) || pendingSubscriptions.has(eventName)) {
 				return;
 			}
 
@@ -112,24 +178,27 @@ export function createManagerMintEventForwarder(
 						return;
 					}
 					const off = manager.on(event, (payload) => {
-						emit(serializeManagerEvent(event, payload));
+						emit(serializeEvent(event, payload));
 					});
-					offHandlers.set(event, off);
+					offHandlers.set(eventName, off);
 				})
 				.finally(() => {
-					pendingSubscriptions.delete(event);
+					pendingSubscriptions.delete(eventName);
 				});
-			pendingSubscriptions.set(event, pending);
+			pendingSubscriptions.set(eventName, pending);
 			void pending;
 		},
-		unsubscribe: ({ event }: ManagerMintEventSubscriptionDto) => {
+		unsubscribe: (
+			{ event }: { event: TEventName },
+		) => {
+			const eventName = event;
 			const currentCount = subscriptionCounts.get(event) ?? 0;
 			if (currentCount <= 1) {
 				subscriptionCounts.delete(event);
-				const off = offHandlers.get(event);
+				const off = offHandlers.get(eventName);
 				if (off) {
 					off();
-					offHandlers.delete(event);
+					offHandlers.delete(eventName);
 				}
 				return;
 			}
@@ -147,15 +216,24 @@ export function createManagerMintEventForwarder(
 	};
 }
 
-function serializeManagerEvent<TEventName extends ManagerMintEventName>(
+function serializeManagerEvent<TEventName extends ManagerEventName>(
 	event: TEventName,
-	payload: ManagerMintEventPayloads[TEventName],
+	payload: ManagerRpcManagerEventPayloads[TEventName],
 ): ManagerEventDto<TEventName> {
 	if (event === "mint:added" || event === "mint:updated") {
 		return {
 			event,
 			payload: serializeMintWithKeysets(
-				payload as ManagerMintEventPayloads["mint:added"],
+				payload as ManagerEventPayloads["mint:added"],
+			),
+		} as ManagerEventDto<TEventName>;
+	}
+
+	if (event === "history:updated") {
+		return {
+			event,
+			payload: serializeHistoryEventPayload(
+				payload as ManagerRpcManagerEventPayloads["history:updated"],
 			),
 		} as ManagerEventDto<TEventName>;
 	}
@@ -197,4 +275,55 @@ function serializeManagerKeyset(keyset: ManagerKeysetLike): ManagerKeysetDto {
 		feePpk: keyset.feePpk ?? 0,
 		updatedAt: keyset.updatedAt,
 	};
+}
+
+function serializeHistoryEventPayload(
+	payload: ManagerRpcManagerEventPayloads["history:updated"],
+): ManagerEventPayloads["history:updated"] {
+	return {
+		mintUrl: payload.mintUrl,
+		entry: serializeHistoryEntry(payload.entry as ManagerHistoryEntryLike),
+	};
+}
+
+function serializeHistoryEntry(entry: ManagerHistoryEntryLike): ManagerHistoryEntryDto {
+	return {
+		id: entry.id,
+		type: entry.type,
+		source: entry.source,
+		createdAt: entry.createdAt,
+		updatedAt: entry.updatedAt,
+		mintUrl: entry.mintUrl,
+		unit: entry.unit,
+		state: String(entry.state),
+		amount: serializeAmount(entry.amount),
+		metadata: entry.metadata,
+		error: entry.error,
+		operationId: entry.operationId,
+		legacyHistoryId: entry.legacyHistoryId,
+		paymentRequest: entry.paymentRequest,
+		quoteId: entry.quoteId,
+		remoteState: entry.remoteState,
+		token: entry.token,
+	};
+}
+
+function serializeAmount(input: unknown): string {
+	if (input === null || input === undefined) {
+		return "0";
+	}
+
+	if (typeof input === "string") {
+		return input;
+	}
+
+	if (typeof input === "number" || typeof input === "bigint") {
+		return input.toString();
+	}
+
+	if (typeof input === "object" && "toString" in input) {
+		return String(input.toString());
+	}
+
+	return String(input);
 }

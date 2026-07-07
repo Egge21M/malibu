@@ -23,28 +23,65 @@ export type ManagerMintEventName =
 	| "mint:trusted"
 	| "mint:untrusted";
 
+export type ManagerHistoryType = "mint" | "melt" | "send" | "receive";
+
+export type ManagerHistoryEventName = "history:updated";
+
+export type ManagerEventName = ManagerMintEventName | ManagerHistoryEventName;
+
 export type ManagerMintWithKeysetsDto = {
 	mint: ManagerMintDto;
 	keysets: ManagerKeysetDto[];
 };
 
-export type ManagerMintEventPayloads = {
+export type ManagerHistoryEntryDto = {
+	id: string;
+	type: ManagerHistoryType;
+	source: "operation" | "legacy";
+	createdAt: number;
+	updatedAt: number;
+	mintUrl: string;
+	unit: string;
+	state: string;
+	amount: string;
+	metadata?: Record<string, string>;
+	error?: string;
+	operationId?: string;
+	legacyHistoryId?: string;
+	paymentRequest?: string;
+	quoteId?: string;
+	remoteState?: string;
+	token?: unknown;
+};
+
+export type ManagerHistoryEventPayloads = {
+	"history:updated": {
+		mintUrl: string;
+		entry: ManagerHistoryEntryDto;
+	};
+};
+
+export type ManagerEventPayloads = {
 	"mint:added": ManagerMintWithKeysetsDto;
 	"mint:updated": ManagerMintWithKeysetsDto;
 	"mint:trusted": { mintUrl: string };
 	"mint:untrusted": { mintUrl: string };
-};
+} & ManagerHistoryEventPayloads;
 
 export type ManagerMintEventSubscriptionDto = {
 	event: ManagerMintEventName;
 };
 
+export type ManagerHistoryEventSubscriptionDto = {
+	event: ManagerHistoryEventName;
+};
+
 export type ManagerEventDto<
-	TEventName extends ManagerMintEventName = ManagerMintEventName,
+	TEventName extends ManagerEventName = ManagerEventName,
 > = {
 	[TName in TEventName]: {
 		event: TName;
-		payload: ManagerMintEventPayloads[TName];
+		payload: ManagerEventPayloads[TName];
 	};
 }[TEventName];
 
@@ -57,6 +94,11 @@ export type ManagerAddMintParams = {
 
 export type ManagerMintUrlParams = {
 	mintUrl: string;
+};
+
+export type ManagerHistoryPaginationParams = {
+	offset?: number;
+	limit?: number;
 };
 
 export type ManagerRpcRequests = {
@@ -80,11 +122,17 @@ export type ManagerRpcRequests = {
 		params: ManagerMintUrlParams;
 		response: boolean;
 	};
+	managerHistoryGetPaginatedHistory: {
+		params: ManagerHistoryPaginationParams;
+		response: ManagerHistoryEntryDto[];
+	};
 };
 
 export type ManagerRpcBunMessages = {
 	managerMintEventSubscribe: ManagerMintEventSubscriptionDto;
 	managerMintEventUnsubscribe: ManagerMintEventSubscriptionDto;
+	managerHistoryEventSubscribe: ManagerHistoryEventSubscriptionDto;
+	managerHistoryEventUnsubscribe: ManagerHistoryEventSubscriptionDto;
 };
 
 export type ManagerRpcWebviewMessages = {

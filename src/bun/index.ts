@@ -1,8 +1,10 @@
 import { BrowserView, BrowserWindow, Updater } from "electrobun/bun";
 import {
+	createManagerHistoryEventForwarder,
 	createManagerMintEventForwarder,
 	createManagerRpcRequestHandlers,
 } from "./manager-rpc.ts";
+import type { ManagerEventDto } from "../mainview/lib/manager-rpc.ts";
 import { CashuWalletService } from "./wallet-service.ts";
 import type { WalletRpcSchema } from "../mainview/lib/wallet-rpc.ts";
 
@@ -33,7 +35,11 @@ const managerRpcRequestHandlers = createManagerRpcRequestHandlers(() =>
 );
 const managerMintEventForwarder = createManagerMintEventForwarder(
 	() => walletService.getCocoManager(),
-	(event) => walletRpc.send.managerEvent(event),
+	(event) => walletRpc.send.managerEvent(event as ManagerEventDto),
+);
+const managerHistoryEventForwarder = createManagerHistoryEventForwarder(
+	() => walletService.getCocoManager(),
+	(event) => walletRpc.send.managerEvent(event as ManagerEventDto),
 );
 
 const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
@@ -54,6 +60,11 @@ const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 			},
 			managerMintIsTrustedMint: async (params) => {
 				return managerRpcRequestHandlers.managerMintIsTrustedMint(params);
+			},
+			managerHistoryGetPaginatedHistory: async (params) => {
+				return managerRpcRequestHandlers.managerHistoryGetPaginatedHistory(
+					params,
+				);
 			},
 			snapshot: () => walletService.snapshot(),
 			addMint: (params) => walletService.addMint(params),
@@ -79,6 +90,10 @@ const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 				managerMintEventForwarder.subscribe(params),
 			managerMintEventUnsubscribe: (params) =>
 				managerMintEventForwarder.unsubscribe(params),
+			managerHistoryEventSubscribe: (params) =>
+				managerHistoryEventForwarder.subscribe(params),
+			managerHistoryEventUnsubscribe: (params) =>
+				managerHistoryEventForwarder.unsubscribe(params),
 		},
 	},
 });
