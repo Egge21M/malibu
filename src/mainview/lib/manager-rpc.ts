@@ -115,7 +115,7 @@ export type ManagerReceiveOperationStateDto =
 export type ManagerReceiveOperationSourceDto =
 	| {
 			type: "manual-token";
-	  }
+		}
 	| {
 			type: "payment-request";
 			requestOperationId: string;
@@ -125,7 +125,7 @@ export type ManagerReceiveOperationSourceDto =
 			transportMessageId?: string;
 			senderPubkey?: string;
 			memo?: string;
-	  };
+		};
 
 export type ManagerReceiveOperationDto = {
 	id: string;
