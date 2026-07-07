@@ -79,6 +79,13 @@ export type ManagerBalanceScopeDto = {
 	trustedOnly?: boolean;
 };
 
+export type ManagerRestoreMintParams = {
+	mintUrl: string;
+	options?: {
+		units?: string[];
+	};
+};
+
 export type ManagerBalanceSnapshotDto = {
 	spendable: string;
 	reserved: string;
@@ -166,6 +173,19 @@ export type ManagerMintOperationDto = Record<string, unknown> & {
 	request?: string;
 	expiry?: number | null;
 	error?: string;
+	createdAt: number;
+	updatedAt: number;
+};
+
+export type ManagerMintQuoteDto = Record<string, unknown> & {
+	mintUrl: string;
+	method: ManagerMintMethod | string;
+	quoteId: string;
+	request: string;
+	amount?: string;
+	unit: string;
+	expiry: number | null;
+	state?: string;
 	createdAt: number;
 	updatedAt: number;
 };
@@ -433,6 +453,19 @@ export type ManagerMintOperationListByQuoteParams = {
 
 export type ManagerMintMethod = "bolt11" | "onchain" | "bolt12";
 
+export type ManagerCreateMintQuoteParams = {
+	mintUrl: string;
+	method: ManagerMintMethod | string;
+	amount: {
+		amount: string;
+		unit: string;
+	};
+};
+
+export type ManagerListPendingMintQuotesParams = {
+	method?: ManagerMintMethod | string;
+};
+
 export type ManagerSendPrepareParams = {
 	mintUrl: string;
 	amount: string;
@@ -530,9 +563,21 @@ export type ManagerRpcRequests = {
 		params: ManagerBalanceScopeDto | undefined;
 		response: ManagerBalancesByUnitDto;
 	};
+	managerWalletRestore: {
+		params: ManagerRestoreMintParams;
+		response: void;
+	};
 	managerHistoryGetPaginatedHistory: {
 		params: ManagerHistoryPaginationParams;
 		response: ManagerHistoryEntryDto[];
+	};
+	managerMintQuoteCreate: {
+		params: ManagerCreateMintQuoteParams;
+		response: ManagerMintQuoteDto;
+	};
+	managerMintQuoteListPending: {
+		params: ManagerListPendingMintQuotesParams | undefined;
+		response: ManagerMintQuoteDto[];
 	};
 	managerMintOpsPrepare: {
 		params: ManagerMintOperationPrepareParams;

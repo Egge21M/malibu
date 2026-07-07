@@ -7,6 +7,7 @@ import type {
 	ManagerBalancesByMintDto,
 	ManagerBalancesByUnitDto,
 	ManagerCancelOperationParams,
+	ManagerCreateMintQuoteParams,
 	ManagerCreateMeltQuoteParams,
 	ManagerEventDto,
 	ManagerEventName,
@@ -14,11 +15,13 @@ import type {
 	ManagerHistoryEntryDto,
 	ManagerHistoryPaginationParams,
 	ManagerKeysetDto,
+	ManagerListPendingMintQuotesParams,
 	ManagerListPendingMeltQuotesParams,
 	ManagerMeltOperationDto,
 	ManagerMeltQuoteDto,
 	ManagerMintDto,
 	ManagerEventSubscriptionDto,
+	ManagerMintQuoteDto,
 	ManagerMintOperationDto,
 	ManagerMintOperationIdParams,
 	ManagerMintOperationListByQuoteParams,
@@ -31,6 +34,7 @@ import type {
 	ManagerPreparedReceiveOperationDto,
 	ManagerProofDto,
 	ManagerReceiveOperationDto,
+	ManagerRestoreMintParams,
 	ManagerSendExecuteParams,
 	ManagerSendExecuteResultDto,
 	ManagerSendOperationDto,
@@ -128,6 +132,19 @@ type ManagerMintOperationLike = {
 	error?: string;
 	createdAt: number;
 	updatedAt: number;
+};
+
+type ManagerMintQuoteLike = {
+	mintUrl: string;
+	method: string;
+	quoteId: string;
+	request: string;
+	unit: string;
+	expiry: number | null;
+	createdAt: number;
+	updatedAt: number;
+	amount?: unknown;
+	state?: string;
 };
 
 type ManagerPendingMintCheckResultLike = {
@@ -257,6 +274,13 @@ type ManagerMeltQuoteApiLike = {
 	refresh: (params: any) => Promise<ManagerMeltQuoteLike>;
 };
 
+type ManagerMintQuoteApiLike = {
+	create: (params: any) => Promise<ManagerMintQuoteLike>;
+	listPending: (
+		params?: any,
+	) => Promise<ManagerMintQuoteLike[]>;
+};
+
 type ManagerMeltOpsApiLike = {
 	prepare: (params: any) => Promise<ManagerMeltOperationLike>;
 	execute: (operationId: any) => Promise<ManagerMeltOperationLike>;
@@ -279,9 +303,11 @@ export type ManagerRpcManagerLike = {
 	mint: ManagerMintApiLike;
 	wallet: {
 		balances: ManagerWalletBalancesApiLike;
+		restore: (mintUrl: string, options?: { units?: string[] }) => Promise<void>;
 	};
 	history: ManagerHistoryApiLike;
 	quotes: {
+		mint?: ManagerMintQuoteApiLike;
 		melt: ManagerMeltQuoteApiLike;
 	};
 	ops: {
@@ -319,9 +345,16 @@ type ManagerRpcRequestHandlers = {
 	managerWalletBalancesTotalByUnit: (
 		params?: ManagerBalanceScopeDto,
 	) => Promise<ManagerBalancesByUnitDto>;
+	managerWalletRestore: (params: ManagerRestoreMintParams) => Promise<void>;
 	managerHistoryGetPaginatedHistory: (
 		params: ManagerHistoryPaginationParams,
 	) => Promise<ManagerHistoryEntryDto[]>;
+	managerMintQuoteCreate: (
+		params: ManagerCreateMintQuoteParams,
+	) => Promise<ManagerMintQuoteDto>;
+	managerMintQuoteListPending: (
+		params?: ManagerListPendingMintQuotesParams,
+	) => Promise<ManagerMintQuoteDto[]>;
 	managerMintOpsPrepare: (
 		params: ManagerMintOperationPrepareParams,
 	) => Promise<ManagerMintOperationDto>;
@@ -475,10 +508,29 @@ export function createManagerRpcRequestHandlers(
 				await manager.wallet.balances.totalByUnit(scope),
 			);
 		},
+		managerWalletRestore: async ({ mintUrl, options }) => {
+			const manager = await getManager();
+			await manager.wallet.restore(mintUrl, options);
+		},
 		managerHistoryGetPaginatedHistory: async ({ offset, limit }) => {
 			const manager = await getManager();
 			const entries = await manager.history.getPaginatedHistory(offset, limit);
 			return entries.map(serializeHistoryEntry);
+		},
+		managerMintQuoteCreate: async (params) => {
+			const manager = await getManager();
+			if (!manager.quotes.mint) {
+				throw new Error("Manager mint quote API is not available.");
+			}
+			return serializeMintQuote(await manager.quotes.mint.create(params));
+		},
+		managerMintQuoteListPending: async (params) => {
+			const manager = await getManager();
+			if (!manager.quotes.mint) {
+				throw new Error("Manager mint quote API is not available.");
+			}
+			const quotes = await manager.quotes.mint.listPending(params);
+			return quotes.map(serializeMintQuote);
 		},
 		managerMintOpsPrepare: async (params) => {
 			const manager = await getManager();
@@ -1150,6 +1202,23 @@ function serializePreparedReceiveOperation(
 	operation: ManagerPreparedReceiveOperationLike,
 ): ManagerPreparedReceiveOperationDto {
 	return serializeReceiveOperation(operation) as ManagerPreparedReceiveOperationDto;
+}
+
+function serializeMintQuote(quote: ManagerMintQuoteLike): ManagerMintQuoteDto {
+	return {
+		...(quote as Record<string, unknown>),
+		mintUrl: quote.mintUrl,
+		method: quote.method,
+		quoteId: quote.quoteId,
+		request: quote.request,
+		amount:
+			quote.amount === undefined ? undefined : serializeAmount(quote.amount),
+		unit: quote.unit,
+		expiry: quote.expiry,
+		state: quote.state === undefined ? undefined : String(quote.state),
+		createdAt: quote.createdAt,
+		updatedAt: quote.updatedAt,
+	};
 }
 
 function serializeMeltQuote(quote: ManagerMeltQuoteLike): ManagerMeltQuoteDto {

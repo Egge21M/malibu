@@ -40,9 +40,8 @@ function getRpc() {
 
 export const walletClient = {
 	snapshot: () => getRpc().request.snapshot(),
+	dataDir: () => getRpc().request.dataDir(),
 	addMint: (params: AddMintParams) => getRpc().request.addMint(params),
-	restoreMint: (params: { mintUrl: string; units?: string[] }) =>
-		getRpc().request.restoreMint(params),
 	createMintQuote: (params: CreateMintQuoteParams) =>
 		getRpc().request.createMintQuote(params),
 	refreshMintOperation: (params: OperationIdParams) =>
