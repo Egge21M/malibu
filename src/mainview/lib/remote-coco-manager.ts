@@ -466,35 +466,103 @@ function rehydrateHistoryEntry(entry: ManagerHistoryEntryDto): HistoryEntry {
 }
 
 function rehydrateMeltQuote(quote: ManagerMeltQuoteDto): MeltQuote {
-	return rehydrateAmountFields(quote, ["amount", "fee_reserve"]) as unknown as MeltQuote;
+	return {
+		...quote,
+		amount: Amount.from(quote.amount),
+		...(quote.fee_reserve === undefined
+			? {}
+			: { fee_reserve: Amount.from(quote.fee_reserve) }),
+		...(Array.isArray(quote.fee_options)
+			? { fee_options: rehydrateMeltFeeOptions(quote.fee_options) }
+			: {}),
+	} as unknown as MeltQuote;
 }
 
 function rehydrateMeltOperation(
 	operation: ManagerMeltOperationDto,
 ): MeltOperation {
-	return rehydrateAmountFields(operation, [
-		"amount",
-		"fee_reserve",
-		"swap_fee",
-		"inputAmount",
-		"changeAmount",
-		"effectiveFee",
-	]) as unknown as MeltOperation;
+	return {
+		...operation,
+		methodData: rehydrateMeltMethodData(operation.methodData),
+		...(operation.amount === undefined
+			? {}
+			: { amount: Amount.from(operation.amount) }),
+		...(operation.fee_reserve === undefined
+			? {}
+			: { fee_reserve: Amount.from(operation.fee_reserve) }),
+		...(operation.swap_fee === undefined
+			? {}
+			: { swap_fee: Amount.from(operation.swap_fee) }),
+		...(operation.inputAmount === undefined
+			? {}
+			: { inputAmount: Amount.from(operation.inputAmount) }),
+		...(operation.changeAmount === undefined
+			? {}
+			: { changeAmount: Amount.from(operation.changeAmount) }),
+		...(operation.effectiveFee === undefined
+			? {}
+			: { effectiveFee: Amount.from(operation.effectiveFee) }),
+	} as unknown as MeltOperation;
 }
 
-function rehydrateAmountFields<TValue extends Record<string, unknown>>(
-	value: TValue,
-	fields: string[],
-): TValue {
-	const rehydrated: Record<string, unknown> = { ...value };
-	for (const field of fields) {
-		const fieldValue = rehydrated[field];
-		if (typeof fieldValue === "string") {
-			rehydrated[field] = Amount.from(fieldValue);
+function rehydrateMeltMethodData(
+	methodData: Record<string, unknown>,
+): Record<string, unknown> {
+	if (typeof methodData.amountSats !== "string") {
+		return methodData;
+	}
+
+	return {
+		...methodData,
+		amountSats: Amount.from(methodData.amountSats),
+	};
+}
+
+function rehydrateMeltFeeOptions(feeOptions: unknown[]): unknown[] {
+	return feeOptions.map((feeOption) => {
+		if (!feeOption || typeof feeOption !== "object") {
+			return feeOption;
+		}
+
+		const feeOptionRecord = feeOption as Record<string, unknown>;
+		if (typeof feeOptionRecord.fee_reserve !== "string") {
+			return feeOption;
+		}
+
+		return {
+			...feeOptionRecord,
+			fee_reserve: Amount.from(feeOptionRecord.fee_reserve),
+		};
+	});
+}
+
+function dehydrateAmount(input: unknown): unknown {
+	if (
+		typeof input === "string" ||
+		typeof input === "number" ||
+		typeof input === "bigint"
+	) {
+		return input.toString();
+	}
+
+	if (Array.isArray(input)) {
+		return input.map(dehydrateAmount);
+	}
+
+	if (!input || typeof input !== "object") {
+		return input;
+	}
+
+	if ("toString" in input && typeof input.toString === "function") {
+		const stringValue = input.toString();
+		if (stringValue !== "[object Object]") {
+			return stringValue;
 		}
 	}
 
-	return rehydrated as TValue;
+	return Object.fromEntries(
+		Object.entries(input).map(([key, value]) => [key, dehydrateAmount(value)]),
+	);
 }
 
 function dehydrateCreateMeltQuoteParams(
@@ -536,37 +604,6 @@ function dehydrateQuoteIdentity(input: QuoteIdentity): ManagerQuoteIdentityDto {
 
 function getOperationId(operationOrId: MeltOperation | string): string {
 	return typeof operationOrId === "string" ? operationOrId : operationOrId.id;
-}
-
-function dehydrateAmount(input: unknown): unknown {
-	if (
-		typeof input === "string" ||
-		typeof input === "number" ||
-		typeof input === "bigint"
-	) {
-		return input.toString();
-	}
-
-	if (input && typeof input === "object") {
-		if ("toJSON" in input && typeof input.toJSON === "function") {
-			const jsonValue = input.toJSON();
-			if (
-				typeof jsonValue === "string" ||
-				typeof jsonValue === "number" ||
-				typeof jsonValue === "bigint"
-			) {
-				return jsonValue.toString();
-			}
-		}
-		if ("toString" in input && typeof input.toString === "function") {
-			const stringValue = input.toString();
-			if (stringValue !== "[object Object]") {
-				return stringValue;
-			}
-		}
-	}
-
-	return input;
 }
 
 function unsupportedAwareObject<TTarget extends object>(

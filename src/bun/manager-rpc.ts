@@ -110,6 +110,7 @@ type ManagerMeltQuoteLike = {
 	updatedAt: number;
 	amount: unknown;
 	fee_reserve?: unknown;
+	fee_options?: unknown[];
 };
 
 type ManagerMeltOperationLike = {
@@ -659,6 +660,9 @@ function serializeMeltQuote(quote: ManagerMeltQuoteLike): ManagerMeltQuoteDto {
 	if (quote.fee_reserve !== undefined) {
 		serialized.fee_reserve = serializeAmount(quote.fee_reserve);
 	}
+	if (Array.isArray(quote.fee_options)) {
+		serialized.fee_options = serializeMeltFeeOptions(quote.fee_options);
+	}
 
 	return serialized;
 }
@@ -671,7 +675,7 @@ function serializeMeltOperation(
 		id: operation.id,
 		mintUrl: operation.mintUrl,
 		method: operation.method,
-		methodData: operation.methodData,
+		methodData: serializeMeltMethodData(operation.methodData),
 		unit: operation.unit,
 		state: String(operation.state),
 		createdAt: operation.createdAt,
@@ -686,6 +690,40 @@ function serializeMeltOperation(
 	copySerializedAmount(operation, serialized, "effectiveFee");
 
 	return serialized;
+}
+
+function serializeMeltMethodData(
+	methodData: Record<string, unknown>,
+): Record<string, unknown> {
+	if (methodData.amountSats === undefined || methodData.amountSats === null) {
+		return methodData;
+	}
+
+	return {
+		...methodData,
+		amountSats: serializeAmount(methodData.amountSats),
+	};
+}
+
+function serializeMeltFeeOptions(feeOptions: unknown[]): unknown[] {
+	return feeOptions.map((feeOption) => {
+		if (!feeOption || typeof feeOption !== "object") {
+			return feeOption;
+		}
+
+		const feeOptionRecord = feeOption as Record<string, unknown>;
+		if (
+			feeOptionRecord.fee_reserve === undefined ||
+			feeOptionRecord.fee_reserve === null
+		) {
+			return feeOption;
+		}
+
+		return {
+			...feeOptionRecord,
+			fee_reserve: serializeAmount(feeOptionRecord.fee_reserve),
+		};
+	});
 }
 
 function copySerializedAmount(

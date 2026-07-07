@@ -160,20 +160,28 @@ type QuoteIdentityLike = {
 	quoteId: string;
 };
 
-type MeltQuoteLike = Omit<ManagerMeltQuoteDto, "amount" | "fee_reserve"> & {
+type MeltQuoteLike = Omit<
+	ManagerMeltQuoteDto,
+	"amount" | "fee_reserve" | "fee_options"
+> & {
 	amount: AmountLike;
 	fee_reserve?: AmountLike;
+	fee_options?: Array<Record<string, unknown> & { fee_reserve: AmountLike }>;
 };
 
 type MeltOperationLike = Omit<
 	ManagerMeltOperationDto,
 	| "amount"
+	| "methodData"
 	| "fee_reserve"
 	| "swap_fee"
 	| "inputAmount"
 	| "changeAmount"
 	| "effectiveFee"
+	| "changeOutputData"
 > & {
+	methodData: Record<string, unknown> & { amountSats?: AmountLike };
+	changeOutputData: Array<{ blindedMessage: { amount: number | string } }>;
 	amount?: AmountLike;
 	fee_reserve?: AmountLike;
 	swap_fee?: AmountLike;
@@ -505,6 +513,7 @@ describe("createRemoteCocoManager", () => {
 		expect(created.amount.add("2").toString()).toBe("23");
 		expect(created.fee_reserve?.add("1").toString()).toBe("2");
 		expect(found?.amount.toString()).toBe("21");
+		expect(found?.fee_options?.[0]?.fee_reserve.add("1").toString()).toBe("4");
 		expect(pending[0]?.quoteId).toBe("quote-1");
 		expect(refreshed.state).toBe("PENDING");
 		expect(fake.calls).toEqual([
@@ -561,6 +570,8 @@ describe("createRemoteCocoManager", () => {
 		await manager.ops.melt.finalize("melt-1");
 
 		expect(prepared.amount?.add("2").toString()).toBe("23");
+		expect(prepared.methodData.amountSats?.add("2").toString()).toBe("23");
+		expect(prepared.changeOutputData[0]?.blindedMessage.amount).toBe(1);
 		expect(executed.state).toBe("pending");
 		expect(current?.state).toBe("pending");
 		expect(byQuote?.quoteId).toBe("quote-1");
@@ -808,6 +819,7 @@ function meltQuote(quoteId: string, state: string): ManagerMeltQuoteDto {
 		expiry: 1_700_000_000,
 		state,
 		fee_reserve: "1",
+		fee_options: [{ fee_reserve: "3", fee_id: "fast" }],
 		createdAt: 10,
 		updatedAt: 11,
 	};
@@ -821,7 +833,7 @@ function meltOperation(
 		id,
 		mintUrl: "https://mint.example",
 		method: "bolt11",
-		methodData: { invoice: "lnbc1invoice" },
+		methodData: { invoice: "lnbc1invoice", amountSats: "21" },
 		unit: "sat",
 		state,
 		createdAt: 12,
@@ -833,7 +845,7 @@ function meltOperation(
 		swap_fee: "0",
 		inputAmount: "22",
 		inputProofSecrets: ["secret-1"],
-		changeOutputData: [],
+		changeOutputData: [{ blindedMessage: { amount: 1 } }],
 	};
 }
 

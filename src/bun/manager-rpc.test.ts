@@ -755,6 +755,7 @@ function rawMeltQuote(quoteId: string, state: string) {
 		expiry: 1_700_000_000,
 		state,
 		fee_reserve: amountLike("1"),
+		fee_options: [{ fee_reserve: amountLike("3"), fee_id: "fast" }],
 		createdAt: 20,
 		updatedAt: 21,
 	};
@@ -775,6 +776,7 @@ function serializedMeltQuote(
 		expiry: 1_700_000_000,
 		state,
 		fee_reserve: "1",
+		fee_options: [{ fee_reserve: "3", fee_id: "fast" }],
 		createdAt: 20,
 		updatedAt: 21,
 	};
@@ -785,7 +787,7 @@ function rawMeltOperation(id: string, state: string) {
 		id,
 		mintUrl: "https://mint.example",
 		method: "bolt11",
-		methodData: { invoice: "lnbc1invoice" },
+		methodData: { invoice: "lnbc1invoice", amountSats: amountLike("21") },
 		unit: "sat",
 		state,
 		createdAt: 22,
@@ -797,7 +799,7 @@ function rawMeltOperation(id: string, state: string) {
 		swap_fee: amountLike("0"),
 		inputAmount: amountLike("22"),
 		inputProofSecrets: ["secret-1"],
-		changeOutputData: [],
+		changeOutputData: [{ blindedMessage: { amount: 1 } }],
 	};
 }
 
@@ -809,7 +811,7 @@ function serializedMeltOperation(
 		id,
 		mintUrl: "https://mint.example",
 		method: "bolt11",
-		methodData: { invoice: "lnbc1invoice" },
+		methodData: { invoice: "lnbc1invoice", amountSats: "21" },
 		unit: "sat",
 		state,
 		createdAt: 22,
@@ -821,7 +823,7 @@ function serializedMeltOperation(
 		swap_fee: "0",
 		inputAmount: "22",
 		inputProofSecrets: ["secret-1"],
-		changeOutputData: [],
+		changeOutputData: [{ blindedMessage: { amount: 1 } }],
 	};
 }
 
