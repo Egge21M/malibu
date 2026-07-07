@@ -1,15 +1,18 @@
-import { toAmount, type HistoryEntry, type Manager } from "@cashu/coco-core";
+import { Amount, type HistoryEntry, type Manager } from "@cashu/coco-core";
 import type {
 	ManagerAddMintParams,
+	ManagerBalanceScopeDto,
+	ManagerBalanceSnapshotDto,
+	ManagerBalancesByMintAndUnitDto,
+	ManagerBalancesByMintDto,
+	ManagerBalancesByUnitDto,
 	ManagerEventDto,
 	ManagerEventName,
 	ManagerEventPayloads,
 	ManagerHistoryEntryDto,
-	ManagerHistoryEventName,
-	ManagerHistoryEventSubscriptionDto,
 	ManagerHistoryPaginationParams,
 	ManagerMintDto,
-	ManagerMintEventSubscriptionDto,
+	ManagerEventSubscriptionDto,
 	ManagerMintUrlParams,
 	ManagerMintWithKeysetsDto,
 } from "@/lib/manager-rpc";
@@ -37,23 +40,28 @@ type RemoteManagerRpc = {
 		managerMintTrustMint: (params: ManagerMintUrlParams) => Promise<void>;
 		managerMintUntrustMint: (params: ManagerMintUrlParams) => Promise<void>;
 		managerMintIsTrustedMint: (params: ManagerMintUrlParams) => Promise<boolean>;
+		managerWalletBalancesByMint: (
+			params?: ManagerBalanceScopeDto,
+		) => Promise<ManagerBalancesByMintDto>;
+		managerWalletBalancesByMintAndUnit: (
+			params?: ManagerBalanceScopeDto,
+		) => Promise<ManagerBalancesByMintAndUnitDto>;
+		managerWalletBalancesByUnit: (
+			params?: ManagerBalanceScopeDto,
+		) => Promise<ManagerBalancesByUnitDto>;
+		managerWalletBalancesTotal: (
+			params?: ManagerBalanceScopeDto,
+		) => Promise<ManagerBalanceSnapshotDto>;
+		managerWalletBalancesTotalByUnit: (
+			params?: ManagerBalanceScopeDto,
+		) => Promise<ManagerBalancesByUnitDto>;
 		managerHistoryGetPaginatedHistory: (
 			params: ManagerHistoryPaginationParams,
 		) => Promise<ManagerHistoryEntryDto[]>;
 	};
 	send: {
-		managerMintEventSubscribe: (
-			payload: ManagerMintEventSubscriptionDto,
-		) => void;
-		managerMintEventUnsubscribe: (
-			payload: ManagerMintEventSubscriptionDto,
-		) => void;
-		managerHistoryEventSubscribe: (
-			payload: ManagerHistoryEventSubscriptionDto,
-		) => void;
-		managerHistoryEventUnsubscribe: (
-			payload: ManagerHistoryEventSubscriptionDto,
-		) => void;
+		managerEventSubscribe: (payload: ManagerEventSubscriptionDto) => void;
+		managerEventUnsubscribe: (payload: ManagerEventSubscriptionDto) => void;
 	};
 	addMessageListener: (
 		message: "managerEvent",
@@ -84,6 +92,31 @@ class RemoteCocoManager {
 			this.rpc.request.managerMintIsTrustedMint({ mintUrl }),
 	});
 
+	readonly wallet = unsupportedAwareObject("Remote Coco manager wallet API", {
+		balances: unsupportedAwareObject("Remote Coco manager balance API", {
+			byMint: async (scope?: ManagerBalanceScopeDto) =>
+				rehydrateBalancesByMint(
+					await this.rpc.request.managerWalletBalancesByMint(scope),
+				),
+			byMintAndUnit: async (scope?: ManagerBalanceScopeDto) =>
+				rehydrateBalancesByMintAndUnit(
+					await this.rpc.request.managerWalletBalancesByMintAndUnit(scope),
+				),
+			byUnit: async (scope?: ManagerBalanceScopeDto) =>
+				rehydrateBalancesByUnit(
+					await this.rpc.request.managerWalletBalancesByUnit(scope),
+				),
+			total: async (scope?: ManagerBalanceScopeDto) =>
+				rehydrateBalanceSnapshot(
+					await this.rpc.request.managerWalletBalancesTotal(scope),
+				),
+			totalByUnit: async (scope?: ManagerBalanceScopeDto) =>
+				rehydrateBalancesByUnit(
+					await this.rpc.request.managerWalletBalancesTotalByUnit(scope),
+				),
+		}),
+	});
+
 	readonly history = unsupportedAwareObject("Remote Coco manager history API", {
 		getPaginatedHistory: async (offset?: number, limit?: number) => {
 			const entries =
@@ -107,7 +140,7 @@ class RemoteCocoManager {
 		listeners.add(handler as ManagerEventHandler<ManagerEventName>);
 		this.listeners.set(event, listeners);
 		if (shouldSubscribe) {
-			this.subscribeToRpcEvent(event);
+			this.rpc.send.managerEventSubscribe({ event });
 		}
 
 		return () => this.off(event, handler);
@@ -125,7 +158,7 @@ class RemoteCocoManager {
 		if (listeners?.size === 0) {
 			this.listeners.delete(event);
 			if (hadHandler) {
-				this.unsubscribeFromRpcEvent(event);
+				this.rpc.send.managerEventUnsubscribe({ event });
 			}
 		}
 		this.stopRpcEventListenerIfIdle();
@@ -157,59 +190,95 @@ class RemoteCocoManager {
 
 		const payload = rehydrateManagerEventPayload(event);
 		for (const listener of listeners) {
-			void listener(payload);
+			void listener(payload as RemoteManagerEventPayloads[ManagerEventName]);
 		}
 	};
-
-	private subscribeToRpcEvent(event: ManagerEventName): void {
-		if (isHistoryEventName(event)) {
-			this.rpc.send.managerHistoryEventSubscribe({ event });
-			return;
-		}
-
-		this.rpc.send.managerMintEventSubscribe({ event });
-	}
-
-	private unsubscribeFromRpcEvent(event: ManagerEventName): void {
-		if (isHistoryEventName(event)) {
-			this.rpc.send.managerHistoryEventUnsubscribe({ event });
-			return;
-		}
-
-		this.rpc.send.managerMintEventUnsubscribe({ event });
-	}
 }
 
 export function createRemoteCocoManager(rpc: RemoteManagerRpc): Manager {
 	return unsupportedAwareObject("Remote Coco manager", new RemoteCocoManager(rpc), {
-		allowProperties: new Set(["mint", "history", "on", "off"]),
+		allowProperties: new Set(["mint", "wallet", "history", "on", "off"]),
 	}) as unknown as Manager;
 }
 
-function isHistoryEventName(
-	event: ManagerEventName,
-): event is ManagerHistoryEventName {
-	return event === "history:updated";
+function rehydrateBalancesByMint(balances: ManagerBalancesByMintDto) {
+	return Object.fromEntries(
+		Object.entries(balances).map(([mintUrl, balance]) => [
+			mintUrl,
+			rehydrateBalanceSnapshot(balance),
+		]),
+	);
 }
 
-function rehydrateManagerEventPayload(
-	event: ManagerEventDto,
-): RemoteManagerEventPayloads[ManagerEventName] {
+function rehydrateBalancesByMintAndUnit(
+	balances: ManagerBalancesByMintAndUnitDto,
+) {
+	return Object.fromEntries(
+		Object.entries(balances).map(([mintUrl, unitBalances]) => [
+			mintUrl,
+			Object.fromEntries(
+				Object.entries(unitBalances).map(([unit, balance]) => [
+					unit,
+					rehydrateBalanceSnapshot(balance),
+				]),
+			),
+		]),
+	);
+}
+
+function rehydrateBalancesByUnit(balances: ManagerBalancesByUnitDto) {
+	return Object.fromEntries(
+		Object.entries(balances).map(([unit, balance]) => [
+			unit,
+			rehydrateBalanceSnapshot(balance),
+		]),
+	);
+}
+
+function rehydrateBalanceSnapshot(balance: ManagerBalanceSnapshotDto) {
+	return {
+		spendable: Amount.from(balance.spendable),
+		reserved: Amount.from(balance.reserved),
+		total: Amount.from(balance.total),
+		unit: balance.unit,
+	};
+}
+
+function rehydrateManagerEventPayload(event: ManagerEventDto) {
 	if (event.event === "history:updated") {
-		const payload = event.payload as ManagerEventPayloads["history:updated"];
 		return {
-			mintUrl: payload.mintUrl,
-			entry: rehydrateHistoryEntry(payload.entry),
+			mintUrl: event.payload.mintUrl,
+			entry: rehydrateHistoryEntry(event.payload.entry),
 		};
 	}
 
-	return event.payload as unknown as RemoteManagerEventPayloads[ManagerEventName];
+	if (event.event === "proofs:saved") {
+		return {
+			...event.payload,
+			proofs: event.payload.proofs.map((proof) => ({
+				...proof,
+				amount: Amount.from(proof.amount),
+			})),
+		};
+	}
+
+	if (event.event === "proofs:reserved") {
+		return {
+			...event.payload,
+			amount: {
+				...event.payload.amount,
+				amount: Amount.from(event.payload.amount.amount),
+			},
+		};
+	}
+
+	return event.payload;
 }
 
 function rehydrateHistoryEntry(entry: ManagerHistoryEntryDto): HistoryEntry {
 	return {
 		...entry,
-		amount: toAmount(entry.amount),
+		amount: Amount.from(entry.amount),
 	} as HistoryEntry;
 }
 

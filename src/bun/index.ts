@@ -1,10 +1,8 @@
 import { BrowserView, BrowserWindow, Updater } from "electrobun/bun";
 import {
-	createManagerHistoryEventForwarder,
-	createManagerMintEventForwarder,
+	createManagerEventForwarder,
 	createManagerRpcRequestHandlers,
 } from "./manager-rpc.ts";
-import type { ManagerEventDto } from "../mainview/lib/manager-rpc.ts";
 import { CashuWalletService } from "./wallet-service.ts";
 import type { WalletRpcSchema } from "../mainview/lib/wallet-rpc.ts";
 
@@ -33,13 +31,9 @@ const walletService = new CashuWalletService();
 const managerRpcRequestHandlers = createManagerRpcRequestHandlers(() =>
 	walletService.getCocoManager(),
 );
-const managerMintEventForwarder = createManagerMintEventForwarder(
+const managerEventForwarder = createManagerEventForwarder(
 	() => walletService.getCocoManager(),
-	(event) => walletRpc.send.managerEvent(event as ManagerEventDto),
-);
-const managerHistoryEventForwarder = createManagerHistoryEventForwarder(
-	() => walletService.getCocoManager(),
-	(event) => walletRpc.send.managerEvent(event as ManagerEventDto),
+	(event) => walletRpc.send.managerEvent(event),
 );
 
 const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
@@ -60,6 +54,25 @@ const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 			},
 			managerMintIsTrustedMint: async (params) => {
 				return managerRpcRequestHandlers.managerMintIsTrustedMint(params);
+			},
+			managerWalletBalancesByMint: async (params) => {
+				return managerRpcRequestHandlers.managerWalletBalancesByMint(params);
+			},
+			managerWalletBalancesByMintAndUnit: async (params) => {
+				return managerRpcRequestHandlers.managerWalletBalancesByMintAndUnit(
+					params,
+				);
+			},
+			managerWalletBalancesByUnit: async (params) => {
+				return managerRpcRequestHandlers.managerWalletBalancesByUnit(params);
+			},
+			managerWalletBalancesTotal: async (params) => {
+				return managerRpcRequestHandlers.managerWalletBalancesTotal(params);
+			},
+			managerWalletBalancesTotalByUnit: async (params) => {
+				return managerRpcRequestHandlers.managerWalletBalancesTotalByUnit(
+					params,
+				);
 			},
 			managerHistoryGetPaginatedHistory: async (params) => {
 				return managerRpcRequestHandlers.managerHistoryGetPaginatedHistory(
@@ -86,14 +99,9 @@ const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 				walletService.refreshMeltOperation(params),
 		},
 		messages: {
-			managerMintEventSubscribe: (params) =>
-				managerMintEventForwarder.subscribe(params),
-			managerMintEventUnsubscribe: (params) =>
-				managerMintEventForwarder.unsubscribe(params),
-			managerHistoryEventSubscribe: (params) =>
-				managerHistoryEventForwarder.subscribe(params),
-			managerHistoryEventUnsubscribe: (params) =>
-				managerHistoryEventForwarder.unsubscribe(params),
+			managerEventSubscribe: (params) => managerEventForwarder.subscribe(params),
+			managerEventUnsubscribe: (params) =>
+				managerEventForwarder.unsubscribe(params),
 		},
 	},
 });

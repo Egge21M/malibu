@@ -1,16 +1,21 @@
 import type {
 	ManagerAddMintParams,
+	ManagerBalanceScopeDto,
+	ManagerBalanceSnapshotDto,
+	ManagerBalancesByMintAndUnitDto,
+	ManagerBalancesByMintDto,
+	ManagerBalancesByUnitDto,
 	ManagerEventDto,
 	ManagerEventName,
 	ManagerEventPayloads,
-	ManagerKeysetDto,
 	ManagerHistoryEntryDto,
-	ManagerHistoryEventName,
 	ManagerHistoryPaginationParams,
+	ManagerKeysetDto,
 	ManagerMintDto,
-	ManagerMintEventName,
+	ManagerEventSubscriptionDto,
 	ManagerMintUrlParams,
 	ManagerMintWithKeysetsDto,
+	ManagerProofDto,
 } from "../mainview/lib/manager-rpc.ts";
 
 type ManagerMintLike = {
@@ -46,6 +51,34 @@ type ManagerMintApiLike = {
 	isTrustedMint: (mintUrl: string) => Promise<boolean>;
 };
 
+type ManagerBalanceSnapshotLike = {
+	spendable: unknown;
+	reserved: unknown;
+	total: unknown;
+	unit: string;
+};
+
+type ManagerBalancesByMintLike = Record<string, ManagerBalanceSnapshotLike>;
+
+type ManagerBalancesByMintAndUnitLike = Record<
+	string,
+	Record<string, ManagerBalanceSnapshotLike>
+>;
+
+type ManagerBalancesByUnitLike = Record<string, ManagerBalanceSnapshotLike>;
+
+type ManagerWalletBalancesApiLike = {
+	byMint: (scope?: ManagerBalanceScopeDto) => Promise<ManagerBalancesByMintLike>;
+	byMintAndUnit: (
+		scope?: ManagerBalanceScopeDto,
+	) => Promise<ManagerBalancesByMintAndUnitLike>;
+	byUnit: (scope?: ManagerBalanceScopeDto) => Promise<ManagerBalancesByUnitLike>;
+	total: (scope?: ManagerBalanceScopeDto) => Promise<ManagerBalanceSnapshotLike>;
+	totalByUnit: (
+		scope?: ManagerBalanceScopeDto,
+	) => Promise<ManagerBalancesByUnitLike>;
+};
+
 type ManagerHistoryEntryLike = Omit<ManagerHistoryEntryDto, "amount"> & {
 	amount: unknown;
 };
@@ -57,22 +90,15 @@ type ManagerHistoryApiLike = {
 	) => Promise<ManagerHistoryEntryLike[]>;
 };
 
-type ManagerRpcManagerEventPayloads = Omit<
-	ManagerEventPayloads,
-	"history:updated"
-> & {
-	"history:updated": {
-		mintUrl: string;
-		entry: ManagerHistoryEntryLike;
-	};
-};
-
 export type ManagerRpcManagerLike = {
 	mint: ManagerMintApiLike;
+	wallet: {
+		balances: ManagerWalletBalancesApiLike;
+	};
 	history: ManagerHistoryApiLike;
 	on: <TEventName extends ManagerEventName>(
 		event: TEventName,
-		handler: (payload: ManagerRpcManagerEventPayloads[TEventName]) => void,
+		handler: (payload: unknown) => void,
 	) => () => void;
 };
 
@@ -84,6 +110,21 @@ type ManagerRpcRequestHandlers = {
 	managerMintTrustMint: (params: ManagerMintUrlParams) => Promise<void>;
 	managerMintUntrustMint: (params: ManagerMintUrlParams) => Promise<void>;
 	managerMintIsTrustedMint: (params: ManagerMintUrlParams) => Promise<boolean>;
+	managerWalletBalancesByMint: (
+		params?: ManagerBalanceScopeDto,
+	) => Promise<ManagerBalancesByMintDto>;
+	managerWalletBalancesByMintAndUnit: (
+		params?: ManagerBalanceScopeDto,
+	) => Promise<ManagerBalancesByMintAndUnitDto>;
+	managerWalletBalancesByUnit: (
+		params?: ManagerBalanceScopeDto,
+	) => Promise<ManagerBalancesByUnitDto>;
+	managerWalletBalancesTotal: (
+		params?: ManagerBalanceScopeDto,
+	) => Promise<ManagerBalanceSnapshotDto>;
+	managerWalletBalancesTotalByUnit: (
+		params?: ManagerBalanceScopeDto,
+	) => Promise<ManagerBalancesByUnitDto>;
 	managerHistoryGetPaginatedHistory: (
 		params: ManagerHistoryPaginationParams,
 	) => Promise<ManagerHistoryEntryDto[]>;
@@ -116,6 +157,36 @@ export function createManagerRpcRequestHandlers(
 			const manager = await getManager();
 			return manager.mint.isTrustedMint(mintUrl);
 		},
+		managerWalletBalancesByMint: async (scope) => {
+			const manager = await getManager();
+			return serializeBalancesByMint(
+				await manager.wallet.balances.byMint(scope),
+			);
+		},
+		managerWalletBalancesByMintAndUnit: async (scope) => {
+			const manager = await getManager();
+			return serializeBalancesByMintAndUnit(
+				await manager.wallet.balances.byMintAndUnit(scope),
+			);
+		},
+		managerWalletBalancesByUnit: async (scope) => {
+			const manager = await getManager();
+			return serializeBalancesByUnit(
+				await manager.wallet.balances.byUnit(scope),
+			);
+		},
+		managerWalletBalancesTotal: async (scope) => {
+			const manager = await getManager();
+			return serializeBalanceSnapshot(
+				await manager.wallet.balances.total(scope),
+			);
+		},
+		managerWalletBalancesTotalByUnit: async (scope) => {
+			const manager = await getManager();
+			return serializeBalancesByUnit(
+				await manager.wallet.balances.totalByUnit(scope),
+			);
+		},
 		managerHistoryGetPaginatedHistory: async ({ offset, limit }) => {
 			const manager = await getManager();
 			const entries = await manager.history.getPaginatedHistory(offset, limit);
@@ -124,51 +195,18 @@ export function createManagerRpcRequestHandlers(
 	};
 }
 
-export function createManagerMintEventForwarder(
+export function createManagerEventForwarder(
 	getManager: () => Promise<ManagerRpcManagerLike>,
-	emit: <TEventName extends ManagerEventName>(
-		event: ManagerEventDto<TEventName>,
-	) => void,
+	emit: (event: ManagerEventDto) => void,
 ) {
-	return createManagerEventForwarder<ManagerMintEventName>(
-		getManager,
-		emit,
-		serializeManagerEvent,
-	);
-}
-
-export function createManagerHistoryEventForwarder(
-	getManager: () => Promise<ManagerRpcManagerLike>,
-	emit: <TEventName extends ManagerEventName>(
-		event: ManagerEventDto<TEventName>,
-	) => void,
-) {
-	return createManagerEventForwarder<ManagerHistoryEventName>(
-		getManager,
-		emit,
-		serializeManagerEvent,
-	);
-}
-
-function createManagerEventForwarder<TEventName extends ManagerEventName>(
-	getManager: () => Promise<ManagerRpcManagerLike>,
-	emit: <TName extends ManagerEventName>(event: ManagerEventDto<TName>) => void,
-	serializeEvent: <TName extends ManagerEventName>(
-		event: TName,
-		payload: ManagerRpcManagerEventPayloads[TName],
-	) => ManagerEventDto<TName>,
-) {
-	const subscriptionCounts = new Map<TEventName, number>();
-	const offHandlers = new Map<TEventName, () => void>();
-	const pendingSubscriptions = new Map<TEventName, Promise<void>>();
+	const subscriptionCounts = new Map<ManagerEventName, number>();
+	const offHandlers = new Map<ManagerEventName, () => void>();
+	const pendingSubscriptions = new Map<ManagerEventName, Promise<void>>();
 
 	return {
-		subscribe: (
-			{ event }: { event: TEventName },
-		) => {
-			const eventName = event;
+		subscribe: ({ event }: ManagerEventSubscriptionDto) => {
 			subscriptionCounts.set(event, (subscriptionCounts.get(event) ?? 0) + 1);
-			if (offHandlers.has(eventName) || pendingSubscriptions.has(eventName)) {
+			if (offHandlers.has(event) || pendingSubscriptions.has(event)) {
 				return;
 			}
 
@@ -178,27 +216,24 @@ function createManagerEventForwarder<TEventName extends ManagerEventName>(
 						return;
 					}
 					const off = manager.on(event, (payload) => {
-						emit(serializeEvent(event, payload));
+						emit(serializeManagerEvent(event, payload));
 					});
-					offHandlers.set(eventName, off);
+					offHandlers.set(event, off);
 				})
 				.finally(() => {
-					pendingSubscriptions.delete(eventName);
+					pendingSubscriptions.delete(event);
 				});
-			pendingSubscriptions.set(eventName, pending);
+			pendingSubscriptions.set(event, pending);
 			void pending;
 		},
-		unsubscribe: (
-			{ event }: { event: TEventName },
-		) => {
-			const eventName = event;
+		unsubscribe: ({ event }: ManagerEventSubscriptionDto) => {
 			const currentCount = subscriptionCounts.get(event) ?? 0;
 			if (currentCount <= 1) {
 				subscriptionCounts.delete(event);
-				const off = offHandlers.get(eventName);
+				const off = offHandlers.get(event);
 				if (off) {
 					off();
-					offHandlers.delete(eventName);
+					offHandlers.delete(event);
 				}
 				return;
 			}
@@ -218,7 +253,7 @@ function createManagerEventForwarder<TEventName extends ManagerEventName>(
 
 function serializeManagerEvent<TEventName extends ManagerEventName>(
 	event: TEventName,
-	payload: ManagerRpcManagerEventPayloads[TEventName],
+	payload: unknown,
 ): ManagerEventDto<TEventName> {
 	if (event === "mint:added" || event === "mint:updated") {
 		return {
@@ -229,18 +264,45 @@ function serializeManagerEvent<TEventName extends ManagerEventName>(
 		} as ManagerEventDto<TEventName>;
 	}
 
-	if (event === "history:updated") {
+	if (event === "proofs:saved") {
+		const savedPayload = payload as ManagerEventPayloads["proofs:saved"];
 		return {
 			event,
-			payload: serializeHistoryEventPayload(
-				payload as ManagerRpcManagerEventPayloads["history:updated"],
-			),
+			payload: {
+				...savedPayload,
+				proofs: savedPayload.proofs.map(serializeProof),
+			},
+		} as ManagerEventDto<TEventName>;
+	}
+
+	if (event === "proofs:reserved") {
+		const reservedPayload = payload as ManagerEventPayloads["proofs:reserved"];
+		return {
+			event,
+			payload: {
+				...reservedPayload,
+				amount: serializeUnitAmount(reservedPayload.amount),
+			},
+		} as ManagerEventDto<TEventName>;
+	}
+
+	if (event === "history:updated") {
+		const historyPayload = payload as {
+			mintUrl: string;
+			entry: ManagerHistoryEntryLike;
+		};
+		return {
+			event,
+			payload: {
+				mintUrl: historyPayload.mintUrl,
+				entry: serializeHistoryEntry(historyPayload.entry),
+			},
 		} as ManagerEventDto<TEventName>;
 	}
 
 	return {
 		event,
-		payload,
+		payload: payload as ManagerEventPayloads[TEventName],
 	} as ManagerEventDto<TEventName>;
 }
 
@@ -251,6 +313,55 @@ function serializeMintWithKeysets(input: {
 	return {
 		mint: serializeManagerMint(input.mint),
 		keysets: input.keysets.map(serializeManagerKeyset),
+	};
+}
+
+function serializeBalancesByMint(
+	balances: ManagerBalancesByMintLike,
+): ManagerBalancesByMintDto {
+	return Object.fromEntries(
+		Object.entries(balances).map(([mintUrl, balance]) => [
+			mintUrl,
+			serializeBalanceSnapshot(balance),
+		]),
+	);
+}
+
+function serializeBalancesByMintAndUnit(
+	balances: ManagerBalancesByMintAndUnitLike,
+): ManagerBalancesByMintAndUnitDto {
+	return Object.fromEntries(
+		Object.entries(balances).map(([mintUrl, unitBalances]) => [
+			mintUrl,
+			Object.fromEntries(
+				Object.entries(unitBalances).map(([unit, balance]) => [
+					unit,
+					serializeBalanceSnapshot(balance),
+				]),
+			),
+		]),
+	);
+}
+
+function serializeBalancesByUnit(
+	balances: ManagerBalancesByUnitLike,
+): ManagerBalancesByUnitDto {
+	return Object.fromEntries(
+		Object.entries(balances).map(([unit, balance]) => [
+			unit,
+			serializeBalanceSnapshot(balance),
+		]),
+	);
+}
+
+function serializeBalanceSnapshot(
+	balance: ManagerBalanceSnapshotLike,
+): ManagerBalanceSnapshotDto {
+	return {
+		spendable: serializeAmount(balance.spendable),
+		reserved: serializeAmount(balance.reserved),
+		total: serializeAmount(balance.total),
+		unit: balance.unit,
 	};
 }
 
@@ -277,12 +388,20 @@ function serializeManagerKeyset(keyset: ManagerKeysetLike): ManagerKeysetDto {
 	};
 }
 
-function serializeHistoryEventPayload(
-	payload: ManagerRpcManagerEventPayloads["history:updated"],
-): ManagerEventPayloads["history:updated"] {
+function serializeProof(proof: ManagerProofDto): ManagerProofDto {
 	return {
-		mintUrl: payload.mintUrl,
-		entry: serializeHistoryEntry(payload.entry as ManagerHistoryEntryLike),
+		...proof,
+		amount: serializeAmount(proof.amount),
+	};
+}
+
+function serializeUnitAmount(input: {
+	amount: unknown;
+	unit: string;
+}): { amount: string; unit: string } {
+	return {
+		...input,
+		amount: serializeAmount(input.amount),
 	};
 }
 
@@ -309,21 +428,33 @@ function serializeHistoryEntry(entry: ManagerHistoryEntryLike): ManagerHistoryEn
 }
 
 function serializeAmount(input: unknown): string {
-	if (input === null || input === undefined) {
-		return "0";
+	if (typeof input === "bigint") {
+		return input.toString();
 	}
-
+	if (typeof input === "number") {
+		return String(input);
+	}
 	if (typeof input === "string") {
 		return input;
 	}
-
-	if (typeof input === "number" || typeof input === "bigint") {
-		return input.toString();
+	if (input && typeof input === "object") {
+		if ("toJSON" in input && typeof input.toJSON === "function") {
+			const jsonValue = input.toJSON();
+			if (
+				typeof jsonValue === "string" ||
+				typeof jsonValue === "number" ||
+				typeof jsonValue === "bigint"
+			) {
+				return jsonValue.toString();
+			}
+		}
+		if ("toString" in input && typeof input.toString === "function") {
+			const stringValue = input.toString();
+			if (stringValue !== "[object Object]") {
+				return stringValue;
+			}
+		}
 	}
 
-	if (typeof input === "object" && "toString" in input) {
-		return String(input.toString());
-	}
-
-	return String(input);
+	throw new Error("Cannot serialize manager amount value.");
 }
