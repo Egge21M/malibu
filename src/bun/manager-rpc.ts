@@ -5,6 +5,7 @@ import type {
 	ManagerMintDto,
 	ManagerMintEventName,
 	ManagerMintEventPayloads,
+	ManagerMintEventSubscriptionDto,
 	ManagerMintUrlParams,
 	ManagerMintWithKeysetsDto,
 } from "../mainview/lib/manager-rpc.ts";
@@ -90,30 +91,61 @@ export function createManagerRpcRequestHandlers(
 	};
 }
 
-export async function forwardManagerMintEvents(
+export function createManagerMintEventForwarder(
 	getManager: () => Promise<ManagerRpcManagerLike>,
 	emit: (event: ManagerEventDto) => void,
-): Promise<() => void> {
-	const manager = await getManager();
-	const offHandlers = MANAGER_MINT_EVENTS.map((eventName) =>
-		manager.on(eventName, (payload) => {
-			emit(serializeManagerEvent(eventName, payload));
-		}),
-	);
+) {
+	const subscriptionCounts = new Map<ManagerMintEventName, number>();
+	const offHandlers = new Map<ManagerMintEventName, () => void>();
+	const pendingSubscriptions = new Map<ManagerMintEventName, Promise<void>>();
 
-	return () => {
-		for (const off of offHandlers) {
-			off();
-		}
+	return {
+		subscribe: ({ event }: ManagerMintEventSubscriptionDto) => {
+			subscriptionCounts.set(event, (subscriptionCounts.get(event) ?? 0) + 1);
+			if (offHandlers.has(event) || pendingSubscriptions.has(event)) {
+				return;
+			}
+
+			const pending = getManager()
+				.then((manager) => {
+					if ((subscriptionCounts.get(event) ?? 0) === 0) {
+						return;
+					}
+					const off = manager.on(event, (payload) => {
+						emit(serializeManagerEvent(event, payload));
+					});
+					offHandlers.set(event, off);
+				})
+				.finally(() => {
+					pendingSubscriptions.delete(event);
+				});
+			pendingSubscriptions.set(event, pending);
+			void pending;
+		},
+		unsubscribe: ({ event }: ManagerMintEventSubscriptionDto) => {
+			const currentCount = subscriptionCounts.get(event) ?? 0;
+			if (currentCount <= 1) {
+				subscriptionCounts.delete(event);
+				const off = offHandlers.get(event);
+				if (off) {
+					off();
+					offHandlers.delete(event);
+				}
+				return;
+			}
+
+			subscriptionCounts.set(event, currentCount - 1);
+		},
+		dispose: () => {
+			subscriptionCounts.clear();
+			for (const off of offHandlers.values()) {
+				off();
+			}
+			offHandlers.clear();
+			pendingSubscriptions.clear();
+		},
 	};
 }
-
-const MANAGER_MINT_EVENTS: ManagerMintEventName[] = [
-	"mint:added",
-	"mint:updated",
-	"mint:trusted",
-	"mint:untrusted",
-];
 
 function serializeManagerEvent<TEventName extends ManagerMintEventName>(
 	event: TEventName,

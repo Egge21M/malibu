@@ -35,6 +35,10 @@ export type ManagerMintEventPayloads = {
 	"mint:untrusted": { mintUrl: string };
 };
 
+export type ManagerMintEventSubscriptionDto = {
+	event: ManagerMintEventName;
+};
+
 export type ManagerEventDto<
 	TEventName extends ManagerMintEventName = ManagerMintEventName,
 > = {
@@ -78,6 +82,11 @@ export type ManagerRpcRequests = {
 	};
 };
 
-export type ManagerRpcMessages = {
+export type ManagerRpcBunMessages = {
+	managerMintEventSubscribe: ManagerMintEventSubscriptionDto;
+	managerMintEventUnsubscribe: ManagerMintEventSubscriptionDto;
+};
+
+export type ManagerRpcWebviewMessages = {
 	managerEvent: ManagerEventDto;
 };

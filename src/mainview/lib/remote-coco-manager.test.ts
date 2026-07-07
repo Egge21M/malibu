@@ -60,6 +60,14 @@ function createFakeRpc() {
 					return true;
 				},
 			},
+			send: {
+				managerMintEventSubscribe: (params: unknown) => {
+					calls.push(["managerMintEventSubscribe", params]);
+				},
+				managerMintEventUnsubscribe: (params: unknown) => {
+					calls.push(["managerMintEventUnsubscribe", params]);
+				},
+			},
 			addMessageListener(
 				message: "managerEvent",
 				handler: (event: ManagerEventDto) => void,
@@ -148,14 +156,39 @@ describe("createRemoteCocoManager", () => {
 		]);
 		expect(fake.calls).toEqual([
 			["addMessageListener", "managerEvent"],
+			["managerMintEventSubscribe", { event: "mint:added" }],
+			["managerMintEventUnsubscribe", { event: "mint:added" }],
 			["removeMessageListener", "managerEvent"],
 		]);
 
 		const secondUnsubscribe = manager.on("mint:updated", handler);
 		secondUnsubscribe();
 		unsubscribe();
-		expect(fake.calls.slice(-2)).toEqual([
+		expect(fake.calls.slice(-4)).toEqual([
 			["addMessageListener", "managerEvent"],
+			["managerMintEventSubscribe", { event: "mint:updated" }],
+			["managerMintEventUnsubscribe", { event: "mint:updated" }],
+			["removeMessageListener", "managerEvent"],
+		]);
+	});
+
+	it("keeps one RPC event subscription for multiple local listeners", () => {
+		const fake = createFakeRpc();
+		const manager = createRemoteCocoManager(
+			fake.rpc,
+		) as unknown as RemoteMintManagerSurface;
+		const firstHandler = () => {};
+		const secondHandler = () => {};
+
+		manager.on("mint:added", firstHandler);
+		manager.on("mint:added", secondHandler);
+		manager.off("mint:added", firstHandler);
+		manager.off("mint:added", secondHandler);
+
+		expect(fake.calls).toEqual([
+			["addMessageListener", "managerEvent"],
+			["managerMintEventSubscribe", { event: "mint:added" }],
+			["managerMintEventUnsubscribe", { event: "mint:added" }],
 			["removeMessageListener", "managerEvent"],
 		]);
 	});

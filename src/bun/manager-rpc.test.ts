@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
+	createManagerMintEventForwarder,
 	createManagerRpcRequestHandlers,
-	forwardManagerMintEvents,
 	type ManagerRpcManagerLike,
 } from "./manager-rpc.ts";
 import type {
@@ -42,22 +42,28 @@ describe("manager RPC handlers", () => {
 		]);
 	});
 
-	it("forwards mint manager events and disposes event subscriptions", async () => {
+	it("forwards subscribed mint manager events and disposes event subscriptions", async () => {
 		const calls: unknown[] = [];
 		const emitted: unknown[] = [];
 		const manager = createFakeManager(calls);
-		const dispose = await forwardManagerMintEvents(
+		const forwarder = createManagerMintEventForwarder(
 			async () => manager,
 			(event) => emitted.push(event),
 		);
+
+		forwarder.subscribe({ event: "mint:updated" });
+		await Promise.resolve();
 
 		manager.emit("mint:updated", {
 			mint: rawMint("https://mint.example"),
 			keysets: [rawKeyset("https://mint.example")],
 		});
 		manager.emit("mint:trusted", { mintUrl: "https://mint.example" });
-		dispose();
-		manager.emit("mint:untrusted", { mintUrl: "https://mint.example" });
+		forwarder.unsubscribe({ event: "mint:updated" });
+		manager.emit("mint:updated", {
+			mint: rawMint("https://mint.example/ignored"),
+			keysets: [],
+		});
 
 		expect(emitted).toEqual([
 			{
@@ -67,20 +73,39 @@ describe("manager RPC handlers", () => {
 					keysets: [serializedKeyset("https://mint.example")],
 				},
 			},
+		]);
+		expect(calls).toEqual([
+			["on", "mint:updated"],
+			["off", "mint:updated"],
+		]);
+	});
+
+	it("keeps one manager event subscription for multiple renderer listeners", async () => {
+		const calls: unknown[] = [];
+		const emitted: unknown[] = [];
+		const manager = createFakeManager(calls);
+		const forwarder = createManagerMintEventForwarder(
+			async () => manager,
+			(event) => emitted.push(event),
+		);
+
+		forwarder.subscribe({ event: "mint:trusted" });
+		forwarder.subscribe({ event: "mint:trusted" });
+		await Promise.resolve();
+		forwarder.unsubscribe({ event: "mint:trusted" });
+		manager.emit("mint:trusted", { mintUrl: "https://mint.example" });
+		forwarder.unsubscribe({ event: "mint:trusted" });
+		manager.emit("mint:trusted", { mintUrl: "https://mint.example/ignored" });
+
+		expect(emitted).toEqual([
 			{
 				event: "mint:trusted",
 				payload: { mintUrl: "https://mint.example" },
 			},
 		]);
 		expect(calls).toEqual([
-			["on", "mint:added"],
-			["on", "mint:updated"],
 			["on", "mint:trusted"],
-			["on", "mint:untrusted"],
-			["off", "mint:added"],
-			["off", "mint:updated"],
 			["off", "mint:trusted"],
-			["off", "mint:untrusted"],
 		]);
 	});
 });

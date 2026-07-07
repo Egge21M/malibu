@@ -1,7 +1,7 @@
 import { BrowserView, BrowserWindow, Updater } from "electrobun/bun";
 import {
+	createManagerMintEventForwarder,
 	createManagerRpcRequestHandlers,
-	forwardManagerMintEvents,
 } from "./manager-rpc.ts";
 import { CashuWalletService } from "./wallet-service.ts";
 import type { WalletRpcSchema } from "../mainview/lib/wallet-rpc.ts";
@@ -31,31 +31,28 @@ const walletService = new CashuWalletService();
 const managerRpcRequestHandlers = createManagerRpcRequestHandlers(() =>
 	walletService.getCocoManager(),
 );
-let stopManagerEventForwarding: (() => void) | undefined;
-let managerEventForwardingPromise: Promise<void> | undefined;
+const managerMintEventForwarder = createManagerMintEventForwarder(
+	() => walletService.getCocoManager(),
+	(event) => walletRpc.send.managerEvent(event),
+);
 
 const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 	maxRequestTime: 120_000,
 	handlers: {
 		requests: {
 			managerMintGetAllMints: async () => {
-				await ensureManagerEventForwarding();
 				return managerRpcRequestHandlers.managerMintGetAllMints();
 			},
 			managerMintAddMint: async (params) => {
-				await ensureManagerEventForwarding();
 				return managerRpcRequestHandlers.managerMintAddMint(params);
 			},
 			managerMintTrustMint: async (params) => {
-				await ensureManagerEventForwarding();
 				return managerRpcRequestHandlers.managerMintTrustMint(params);
 			},
 			managerMintUntrustMint: async (params) => {
-				await ensureManagerEventForwarding();
 				return managerRpcRequestHandlers.managerMintUntrustMint(params);
 			},
 			managerMintIsTrustedMint: async (params) => {
-				await ensureManagerEventForwarding();
 				return managerRpcRequestHandlers.managerMintIsTrustedMint(params);
 			},
 			snapshot: () => walletService.snapshot(),
@@ -77,28 +74,14 @@ const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 			refreshMeltOperation: (params) =>
 				walletService.refreshMeltOperation(params),
 		},
+		messages: {
+			managerMintEventSubscribe: (params) =>
+				managerMintEventForwarder.subscribe(params),
+			managerMintEventUnsubscribe: (params) =>
+				managerMintEventForwarder.unsubscribe(params),
+		},
 	},
 });
-
-async function ensureManagerEventForwarding() {
-	if (stopManagerEventForwarding) {
-		return;
-	}
-
-	managerEventForwardingPromise ??= forwardManagerMintEvents(
-		() => walletService.getCocoManager(),
-		(event) => walletRpc.send.managerEvent(event),
-	)
-		.then((stop) => {
-			stopManagerEventForwarding = stop;
-		})
-		.catch((error: unknown) => {
-			managerEventForwardingPromise = undefined;
-			throw error;
-		});
-
-	await managerEventForwardingPromise;
-}
 
 const mainWindow = new BrowserWindow({
 	title: "Malibu Cashu Wallet",

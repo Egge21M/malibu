@@ -1,4 +1,8 @@
-import type { ManagerRpcMessages, ManagerRpcRequests } from "@/lib/manager-rpc";
+import type {
+	ManagerRpcBunMessages,
+	ManagerRpcRequests,
+	ManagerRpcWebviewMessages,
+} from "@/lib/manager-rpc";
 
 export type BalanceSnapshotDto = {
 	spendable: string;
@@ -200,10 +204,10 @@ export type WalletRpcSchema = {
 				response: WalletActionResult<WalletOperationDto>;
 			};
 		};
-		messages: {};
+		messages: ManagerRpcBunMessages;
 	};
 	webview: {
 		requests: {};
-		messages: ManagerRpcMessages;
+		messages: ManagerRpcWebviewMessages;
 	};
 };

@@ -5,6 +5,7 @@ import type {
 	ManagerMintDto,
 	ManagerMintEventName,
 	ManagerMintEventPayloads,
+	ManagerMintEventSubscriptionDto,
 	ManagerMintUrlParams,
 	ManagerMintWithKeysetsDto,
 } from "@/lib/manager-rpc";
@@ -22,6 +23,14 @@ type RemoteManagerRpc = {
 		managerMintTrustMint: (params: ManagerMintUrlParams) => Promise<void>;
 		managerMintUntrustMint: (params: ManagerMintUrlParams) => Promise<void>;
 		managerMintIsTrustedMint: (params: ManagerMintUrlParams) => Promise<boolean>;
+	};
+	send: {
+		managerMintEventSubscribe: (
+			payload: ManagerMintEventSubscriptionDto,
+		) => void;
+		managerMintEventUnsubscribe: (
+			payload: ManagerMintEventSubscriptionDto,
+		) => void;
 	};
 	addMessageListener: (
 		message: "managerEvent",
@@ -60,8 +69,12 @@ class RemoteCocoManager {
 	): () => void {
 		this.ensureRpcEventListener();
 		const listeners = this.listeners.get(event) ?? new Set();
+		const shouldSubscribe = listeners.size === 0;
 		listeners.add(handler as ManagerEventHandler<ManagerMintEventName>);
 		this.listeners.set(event, listeners);
+		if (shouldSubscribe) {
+			this.rpc.send.managerMintEventSubscribe({ event });
+		}
 
 		return () => this.off(event, handler);
 	}
@@ -71,9 +84,15 @@ class RemoteCocoManager {
 		handler: ManagerEventHandler<TEventName>,
 	): void {
 		const listeners = this.listeners.get(event);
+		const hadHandler = listeners?.has(
+			handler as ManagerEventHandler<ManagerMintEventName>,
+		);
 		listeners?.delete(handler as ManagerEventHandler<ManagerMintEventName>);
 		if (listeners?.size === 0) {
 			this.listeners.delete(event);
+			if (hadHandler) {
+				this.rpc.send.managerMintEventUnsubscribe({ event });
+			}
 		}
 		this.stopRpcEventListenerIfIdle();
 	}
