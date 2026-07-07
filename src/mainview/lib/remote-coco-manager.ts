@@ -1,4 +1,11 @@
-import { Amount, type HistoryEntry, type Manager } from "@cashu/coco-core";
+import {
+	Amount,
+	type HistoryEntry,
+	type Manager,
+	type MeltOperation,
+	type MeltQuote,
+	type QuoteIdentity,
+} from "@cashu/coco-core";
 import type {
 	ManagerAddMintParams,
 	ManagerBalanceScopeDto,
@@ -6,11 +13,19 @@ import type {
 	ManagerBalancesByMintAndUnitDto,
 	ManagerBalancesByMintDto,
 	ManagerBalancesByUnitDto,
+	ManagerCreateMeltQuoteParams,
 	ManagerEventDto,
 	ManagerEventName,
 	ManagerEventPayloads,
 	ManagerHistoryEntryDto,
 	ManagerHistoryPaginationParams,
+	ManagerListPendingMeltQuotesParams,
+	ManagerMeltOperationDto,
+	ManagerMeltQuoteDto,
+	ManagerOperationIdParams,
+	ManagerOperationIdWithReasonParams,
+	ManagerPrepareMeltParams,
+	ManagerQuoteIdentityDto,
 	ManagerMintDto,
 	ManagerEventSubscriptionDto,
 	ManagerMintUrlParams,
@@ -19,12 +34,33 @@ import type {
 
 type RemoteManagerEventPayloads = Omit<
 	ManagerEventPayloads,
-	"history:updated"
+	| "history:updated"
+	| "melt-op:prepared"
+	| "melt-op:pending"
+	| "melt-op:finalized"
+	| "melt-op:rolled-back"
+	| "melt-quote:updated"
 > & {
 	"history:updated": {
 		mintUrl: string;
 		entry: HistoryEntry;
 	};
+	"melt-op:prepared": MeltOperationEventPayload;
+	"melt-op:pending": MeltOperationEventPayload;
+	"melt-op:finalized": MeltOperationEventPayload;
+	"melt-op:rolled-back": MeltOperationEventPayload;
+	"melt-quote:updated": {
+		mintUrl: string;
+		method: string;
+		quoteId: string;
+		quote: MeltQuote;
+	};
+};
+
+type MeltOperationEventPayload = {
+	mintUrl: string;
+	operationId: string;
+	operation: MeltOperation;
 };
 
 type ManagerEventHandler<TEventName extends ManagerEventName> = (
@@ -58,6 +94,45 @@ type RemoteManagerRpc = {
 		managerHistoryGetPaginatedHistory: (
 			params: ManagerHistoryPaginationParams,
 		) => Promise<ManagerHistoryEntryDto[]>;
+		managerMeltQuoteCreate: (
+			params: ManagerCreateMeltQuoteParams,
+		) => Promise<ManagerMeltQuoteDto>;
+		managerMeltQuoteGet: (
+			params: ManagerQuoteIdentityDto,
+		) => Promise<ManagerMeltQuoteDto | null>;
+		managerMeltQuoteListPending: (
+			params?: ManagerListPendingMeltQuotesParams,
+		) => Promise<ManagerMeltQuoteDto[]>;
+		managerMeltQuoteRefresh: (
+			params: ManagerQuoteIdentityDto,
+		) => Promise<ManagerMeltQuoteDto>;
+		managerMeltPrepare: (
+			params: ManagerPrepareMeltParams,
+		) => Promise<ManagerMeltOperationDto>;
+		managerMeltExecute: (
+			params: ManagerOperationIdParams,
+		) => Promise<ManagerMeltOperationDto>;
+		managerMeltGet: (
+			params: ManagerOperationIdParams,
+		) => Promise<ManagerMeltOperationDto | null>;
+		managerMeltGetByQuote: (
+			params: ManagerQuoteIdentityDto,
+		) => Promise<ManagerMeltOperationDto | null>;
+		managerMeltListByQuote: (
+			params: ManagerQuoteIdentityDto,
+		) => Promise<ManagerMeltOperationDto[]>;
+		managerMeltListPrepared: () => Promise<ManagerMeltOperationDto[]>;
+		managerMeltListInFlight: () => Promise<ManagerMeltOperationDto[]>;
+		managerMeltRefresh: (
+			params: ManagerOperationIdParams,
+		) => Promise<ManagerMeltOperationDto>;
+		managerMeltCancel: (
+			params: ManagerOperationIdWithReasonParams,
+		) => Promise<void>;
+		managerMeltReclaim: (
+			params: ManagerOperationIdWithReasonParams,
+		) => Promise<void>;
+		managerMeltFinalize: (params: ManagerOperationIdParams) => Promise<void>;
 	};
 	send: {
 		managerEventSubscribe: (payload: ManagerEventSubscriptionDto) => void;
@@ -126,6 +201,87 @@ class RemoteCocoManager {
 				});
 			return entries.map(rehydrateHistoryEntry);
 		},
+	});
+
+	readonly quotes = unsupportedAwareObject("Remote Coco manager quotes API", {
+		melt: unsupportedAwareObject("Remote Coco manager melt quote API", {
+			create: async (input: ManagerCreateMeltQuoteParams) =>
+				rehydrateMeltQuote(
+					await this.rpc.request.managerMeltQuoteCreate(
+						dehydrateCreateMeltQuoteParams(input),
+					),
+				),
+			get: async (input: QuoteIdentity) => {
+				const quote = await this.rpc.request.managerMeltQuoteGet(
+					dehydrateQuoteIdentity(input),
+				);
+				return quote ? rehydrateMeltQuote(quote) : null;
+			},
+			listPending: async (input?: ManagerListPendingMeltQuotesParams) =>
+				(
+					await this.rpc.request.managerMeltQuoteListPending(input)
+				).map(rehydrateMeltQuote),
+			refresh: async (input: QuoteIdentity) =>
+				rehydrateMeltQuote(
+					await this.rpc.request.managerMeltQuoteRefresh(
+						dehydrateQuoteIdentity(input),
+					),
+				),
+		}),
+	});
+
+	readonly ops = unsupportedAwareObject("Remote Coco manager ops API", {
+		melt: unsupportedAwareObject("Remote Coco manager melt operation API", {
+			prepare: async (input: { quote: MeltQuote; feeIndex?: number }) =>
+				rehydrateMeltOperation(
+					await this.rpc.request.managerMeltPrepare({
+						quote: dehydrateMeltQuoteRef(input.quote),
+						feeIndex: input.feeIndex,
+					}),
+				),
+			execute: async (operationOrId: MeltOperation | string) =>
+				rehydrateMeltOperation(
+					await this.rpc.request.managerMeltExecute({
+						operationId: getOperationId(operationOrId),
+					}),
+				),
+			get: async (operationId: string) => {
+				const operation = await this.rpc.request.managerMeltGet({
+					operationId,
+				});
+				return operation ? rehydrateMeltOperation(operation) : null;
+			},
+			getByQuote: async (input: QuoteIdentity) => {
+				const operation = await this.rpc.request.managerMeltGetByQuote(
+					dehydrateQuoteIdentity(input),
+				);
+				return operation ? rehydrateMeltOperation(operation) : null;
+			},
+			listByQuote: async (input: QuoteIdentity) =>
+				(
+					await this.rpc.request.managerMeltListByQuote(
+						dehydrateQuoteIdentity(input),
+					)
+				).map(rehydrateMeltOperation),
+			listPrepared: async () =>
+				(
+					await this.rpc.request.managerMeltListPrepared()
+				).map(rehydrateMeltOperation),
+			listInFlight: async () =>
+				(
+					await this.rpc.request.managerMeltListInFlight()
+				).map(rehydrateMeltOperation),
+			refresh: async (operationId: string) =>
+				rehydrateMeltOperation(
+					await this.rpc.request.managerMeltRefresh({ operationId }),
+				),
+			cancel: (operationId: string, reason?: string) =>
+				this.rpc.request.managerMeltCancel({ operationId, reason }),
+			reclaim: (operationId: string, reason?: string) =>
+				this.rpc.request.managerMeltReclaim({ operationId, reason }),
+			finalize: (operationId: string) =>
+				this.rpc.request.managerMeltFinalize({ operationId }),
+		}),
 	});
 
 	constructor(private readonly rpc: RemoteManagerRpc) {}
@@ -197,7 +353,15 @@ class RemoteCocoManager {
 
 export function createRemoteCocoManager(rpc: RemoteManagerRpc): Manager {
 	return unsupportedAwareObject("Remote Coco manager", new RemoteCocoManager(rpc), {
-		allowProperties: new Set(["mint", "wallet", "history", "on", "off"]),
+		allowProperties: new Set([
+			"mint",
+			"wallet",
+			"history",
+			"quotes",
+			"ops",
+			"on",
+			"off",
+		]),
 	}) as unknown as Manager;
 }
 
@@ -252,6 +416,25 @@ function rehydrateManagerEventPayload(event: ManagerEventDto) {
 		};
 	}
 
+	if (
+		event.event === "melt-op:prepared" ||
+		event.event === "melt-op:pending" ||
+		event.event === "melt-op:finalized" ||
+		event.event === "melt-op:rolled-back"
+	) {
+		return {
+			...event.payload,
+			operation: rehydrateMeltOperation(event.payload.operation),
+		};
+	}
+
+	if (event.event === "melt-quote:updated") {
+		return {
+			...event.payload,
+			quote: rehydrateMeltQuote(event.payload.quote),
+		};
+	}
+
 	if (event.event === "proofs:saved") {
 		return {
 			...event.payload,
@@ -280,6 +463,110 @@ function rehydrateHistoryEntry(entry: ManagerHistoryEntryDto): HistoryEntry {
 		...entry,
 		amount: Amount.from(entry.amount),
 	} as HistoryEntry;
+}
+
+function rehydrateMeltQuote(quote: ManagerMeltQuoteDto): MeltQuote {
+	return rehydrateAmountFields(quote, ["amount", "fee_reserve"]) as unknown as MeltQuote;
+}
+
+function rehydrateMeltOperation(
+	operation: ManagerMeltOperationDto,
+): MeltOperation {
+	return rehydrateAmountFields(operation, [
+		"amount",
+		"fee_reserve",
+		"swap_fee",
+		"inputAmount",
+		"changeAmount",
+		"effectiveFee",
+	]) as unknown as MeltOperation;
+}
+
+function rehydrateAmountFields<TValue extends Record<string, unknown>>(
+	value: TValue,
+	fields: string[],
+): TValue {
+	const rehydrated: Record<string, unknown> = { ...value };
+	for (const field of fields) {
+		const fieldValue = rehydrated[field];
+		if (typeof fieldValue === "string") {
+			rehydrated[field] = Amount.from(fieldValue);
+		}
+	}
+
+	return rehydrated as TValue;
+}
+
+function dehydrateCreateMeltQuoteParams(
+	input: ManagerCreateMeltQuoteParams,
+): ManagerCreateMeltQuoteParams {
+	return {
+		...input,
+		methodData: dehydrateMethodData(input.methodData),
+	};
+}
+
+function dehydrateMethodData(
+	methodData: Record<string, unknown>,
+): Record<string, unknown> {
+	return Object.fromEntries(
+		Object.entries(methodData).map(([key, value]) => [
+			key,
+			key === "amountSats" ? dehydrateAmount(value) : value,
+		]),
+	);
+}
+
+function dehydrateMeltQuoteRef(
+	quote: MeltQuote,
+): ManagerPrepareMeltParams["quote"] {
+	return {
+		mintUrl: quote.mintUrl,
+		quoteId: quote.quoteId,
+		method: quote.method,
+	};
+}
+
+function dehydrateQuoteIdentity(input: QuoteIdentity): ManagerQuoteIdentityDto {
+	return {
+		mintUrl: input.mintUrl,
+		quoteId: input.quoteId,
+	};
+}
+
+function getOperationId(operationOrId: MeltOperation | string): string {
+	return typeof operationOrId === "string" ? operationOrId : operationOrId.id;
+}
+
+function dehydrateAmount(input: unknown): unknown {
+	if (
+		typeof input === "string" ||
+		typeof input === "number" ||
+		typeof input === "bigint"
+	) {
+		return input.toString();
+	}
+
+	if (input && typeof input === "object") {
+		if ("toJSON" in input && typeof input.toJSON === "function") {
+			const jsonValue = input.toJSON();
+			if (
+				typeof jsonValue === "string" ||
+				typeof jsonValue === "number" ||
+				typeof jsonValue === "bigint"
+			) {
+				return jsonValue.toString();
+			}
+		}
+		if ("toString" in input && typeof input.toString === "function") {
+			const stringValue = input.toString();
+			if (stringValue !== "[object Object]") {
+				return stringValue;
+			}
+		}
+	}
+
+	return input;
 }
 
 function unsupportedAwareObject<TTarget extends object>(

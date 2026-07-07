@@ -79,6 +79,51 @@ const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 					params,
 				);
 			},
+			managerMeltQuoteCreate: async (params) => {
+				return managerRpcRequestHandlers.managerMeltQuoteCreate(params);
+			},
+			managerMeltQuoteGet: async (params) => {
+				return managerRpcRequestHandlers.managerMeltQuoteGet(params);
+			},
+			managerMeltQuoteListPending: async (params) => {
+				return managerRpcRequestHandlers.managerMeltQuoteListPending(params);
+			},
+			managerMeltQuoteRefresh: async (params) => {
+				return managerRpcRequestHandlers.managerMeltQuoteRefresh(params);
+			},
+			managerMeltPrepare: async (params) => {
+				return managerRpcRequestHandlers.managerMeltPrepare(params);
+			},
+			managerMeltExecute: async (params) => {
+				return managerRpcRequestHandlers.managerMeltExecute(params);
+			},
+			managerMeltGet: async (params) => {
+				return managerRpcRequestHandlers.managerMeltGet(params);
+			},
+			managerMeltGetByQuote: async (params) => {
+				return managerRpcRequestHandlers.managerMeltGetByQuote(params);
+			},
+			managerMeltListByQuote: async (params) => {
+				return managerRpcRequestHandlers.managerMeltListByQuote(params);
+			},
+			managerMeltListPrepared: async () => {
+				return managerRpcRequestHandlers.managerMeltListPrepared();
+			},
+			managerMeltListInFlight: async () => {
+				return managerRpcRequestHandlers.managerMeltListInFlight();
+			},
+			managerMeltRefresh: async (params) => {
+				return managerRpcRequestHandlers.managerMeltRefresh(params);
+			},
+			managerMeltCancel: async (params) => {
+				return managerRpcRequestHandlers.managerMeltCancel(params);
+			},
+			managerMeltReclaim: async (params) => {
+				return managerRpcRequestHandlers.managerMeltReclaim(params);
+			},
+			managerMeltFinalize: async (params) => {
+				return managerRpcRequestHandlers.managerMeltFinalize(params);
+			},
 			snapshot: () => walletService.snapshot(),
 			addMint: (params) => walletService.addMint(params),
 			restoreMint: (params) => walletService.restoreMint(params),

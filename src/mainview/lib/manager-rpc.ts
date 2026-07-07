@@ -33,10 +33,18 @@ export type ManagerHistoryType = "mint" | "melt" | "send" | "receive";
 
 export type ManagerHistoryEventName = "history:updated";
 
+export type ManagerMeltEventName =
+	| "melt-op:prepared"
+	| "melt-op:pending"
+	| "melt-op:finalized"
+	| "melt-op:rolled-back"
+	| "melt-quote:updated";
+
 export type ManagerEventName =
 	| ManagerMintEventName
 	| ManagerBalanceRefreshEventName
-	| ManagerHistoryEventName;
+	| ManagerHistoryEventName
+	| ManagerMeltEventName;
 
 export type ManagerMintWithKeysetsDto = {
 	mint: ManagerMintDto;
@@ -97,6 +105,75 @@ export type ManagerHistoryEntryDto = {
 	token?: unknown;
 };
 
+export type ManagerQuoteIdentityDto = {
+	mintUrl: string;
+	quoteId: string;
+};
+
+export type ManagerMeltMethod = "bolt11" | "bolt12" | "onchain";
+
+export type ManagerMeltQuoteDto = Record<string, unknown> & {
+	mintUrl: string;
+	method: ManagerMeltMethod | string;
+	quoteId: string;
+	quote?: string;
+	request: string;
+	amount: string;
+	unit: string;
+	expiry: number;
+	state: string;
+	fee_reserve?: string;
+	createdAt: number;
+	updatedAt: number;
+};
+
+export type ManagerMeltOperationDto = Record<string, unknown> & {
+	id: string;
+	mintUrl: string;
+	method: ManagerMeltMethod | string;
+	methodData: Record<string, unknown>;
+	unit: string;
+	state: string;
+	createdAt: number;
+	updatedAt: number;
+	error?: string;
+	quoteId?: string;
+	needsSwap?: boolean;
+	amount?: string;
+	fee_reserve?: string;
+	swap_fee?: string;
+	inputAmount?: string;
+	inputProofSecrets?: string[];
+	changeAmount?: string;
+	effectiveFee?: string;
+};
+
+export type ManagerCreateMeltQuoteParams = {
+	mintUrl: string;
+	method: ManagerMeltMethod | string;
+	methodData: Record<string, unknown>;
+	unit?: string;
+};
+
+export type ManagerListPendingMeltQuotesParams = {
+	method?: ManagerMeltMethod | string;
+};
+
+export type ManagerPrepareMeltParams = {
+	quote: ManagerQuoteIdentityDto & {
+		method: ManagerMeltMethod | string;
+	};
+	feeIndex?: number;
+};
+
+export type ManagerOperationIdParams = {
+	operationId: string;
+};
+
+export type ManagerOperationIdWithReasonParams = ManagerOperationIdParams & {
+	reason?: string;
+};
+
 export type ManagerEventPayloads = {
 	"mint:added": ManagerMintWithKeysetsDto;
 	"mint:updated": ManagerMintWithKeysetsDto;
@@ -125,6 +202,32 @@ export type ManagerEventPayloads = {
 	"history:updated": {
 		mintUrl: string;
 		entry: ManagerHistoryEntryDto;
+	};
+	"melt-op:prepared": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerMeltOperationDto;
+	};
+	"melt-op:pending": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerMeltOperationDto;
+	};
+	"melt-op:finalized": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerMeltOperationDto;
+	};
+	"melt-op:rolled-back": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerMeltOperationDto;
+	};
+	"melt-quote:updated": {
+		mintUrl: string;
+		method: ManagerMeltMethod | string;
+		quoteId: string;
+		quote: ManagerMeltQuoteDto;
 	};
 };
 
@@ -201,6 +304,66 @@ export type ManagerRpcRequests = {
 	managerHistoryGetPaginatedHistory: {
 		params: ManagerHistoryPaginationParams;
 		response: ManagerHistoryEntryDto[];
+	};
+	managerMeltQuoteCreate: {
+		params: ManagerCreateMeltQuoteParams;
+		response: ManagerMeltQuoteDto;
+	};
+	managerMeltQuoteGet: {
+		params: ManagerQuoteIdentityDto;
+		response: ManagerMeltQuoteDto | null;
+	};
+	managerMeltQuoteListPending: {
+		params: ManagerListPendingMeltQuotesParams | undefined;
+		response: ManagerMeltQuoteDto[];
+	};
+	managerMeltQuoteRefresh: {
+		params: ManagerQuoteIdentityDto;
+		response: ManagerMeltQuoteDto;
+	};
+	managerMeltPrepare: {
+		params: ManagerPrepareMeltParams;
+		response: ManagerMeltOperationDto;
+	};
+	managerMeltExecute: {
+		params: ManagerOperationIdParams;
+		response: ManagerMeltOperationDto;
+	};
+	managerMeltGet: {
+		params: ManagerOperationIdParams;
+		response: ManagerMeltOperationDto | null;
+	};
+	managerMeltGetByQuote: {
+		params: ManagerQuoteIdentityDto;
+		response: ManagerMeltOperationDto | null;
+	};
+	managerMeltListByQuote: {
+		params: ManagerQuoteIdentityDto;
+		response: ManagerMeltOperationDto[];
+	};
+	managerMeltListPrepared: {
+		params: undefined;
+		response: ManagerMeltOperationDto[];
+	};
+	managerMeltListInFlight: {
+		params: undefined;
+		response: ManagerMeltOperationDto[];
+	};
+	managerMeltRefresh: {
+		params: ManagerOperationIdParams;
+		response: ManagerMeltOperationDto;
+	};
+	managerMeltCancel: {
+		params: ManagerOperationIdWithReasonParams;
+		response: void;
+	};
+	managerMeltReclaim: {
+		params: ManagerOperationIdWithReasonParams;
+		response: void;
+	};
+	managerMeltFinalize: {
+		params: ManagerOperationIdParams;
+		response: void;
 	};
 };
 

@@ -7,6 +7,8 @@ import type {
 	ManagerBalancesByUnitDto,
 	ManagerEventDto,
 	ManagerHistoryEntryDto,
+	ManagerMeltOperationDto,
+	ManagerMeltQuoteDto,
 	ManagerMintDto,
 	ManagerMintWithKeysetsDto,
 } from "@/lib/manager-rpc";
@@ -42,6 +44,37 @@ type RemoteMintManagerSurface = {
 			limit?: number,
 		) => Promise<HistoryEntry[]>;
 	};
+	quotes: {
+		melt: {
+			create: (input: {
+				mintUrl: string;
+				method: string;
+				methodData: Record<string, unknown>;
+				unit?: string;
+			}) => Promise<MeltQuoteLike>;
+			get: (input: QuoteIdentityLike) => Promise<MeltQuoteLike | null>;
+			listPending: (input?: { method?: string }) => Promise<MeltQuoteLike[]>;
+			refresh: (input: QuoteIdentityLike) => Promise<MeltQuoteLike>;
+		};
+	};
+	ops: {
+		melt: {
+			prepare: (input: {
+				quote: MeltQuoteLike;
+				feeIndex?: number;
+			}) => Promise<MeltOperationLike>;
+			execute: (operationOrId: MeltOperationLike | string) => Promise<MeltOperationLike>;
+			get: (operationId: string) => Promise<MeltOperationLike | null>;
+			getByQuote: (input: QuoteIdentityLike) => Promise<MeltOperationLike | null>;
+			listByQuote: (input: QuoteIdentityLike) => Promise<MeltOperationLike[]>;
+			listPrepared: () => Promise<MeltOperationLike[]>;
+			listInFlight: () => Promise<MeltOperationLike[]>;
+			refresh: (operationId: string) => Promise<MeltOperationLike>;
+			cancel: (operationId: string, reason?: string) => Promise<void>;
+			reclaim: (operationId: string, reason?: string) => Promise<void>;
+			finalize: (operationId: string) => Promise<void>;
+		};
+	};
 	on: {
 		(
 			event: "mint:added" | "mint:updated",
@@ -54,6 +87,18 @@ type RemoteMintManagerSurface = {
 		(
 			event: "history:updated",
 			handler: (payload: { mintUrl: string; entry: HistoryEntry }) => void,
+		): () => void;
+		(
+			event:
+				| "melt-op:prepared"
+				| "melt-op:pending"
+				| "melt-op:finalized"
+				| "melt-op:rolled-back",
+			handler: (payload: MeltOperationEvent) => void,
+		): () => void;
+		(
+			event: "melt-quote:updated",
+			handler: (payload: MeltQuoteEvent) => void,
 		): () => void;
 	};
 	off: {
@@ -68,6 +113,18 @@ type RemoteMintManagerSurface = {
 		(
 			event: "history:updated",
 			handler: (payload: { mintUrl: string; entry: HistoryEntry }) => void,
+		): void;
+		(
+			event:
+				| "melt-op:prepared"
+				| "melt-op:pending"
+				| "melt-op:finalized"
+				| "melt-op:rolled-back",
+			handler: (payload: MeltOperationEvent) => void,
+		): void;
+		(
+			event: "melt-quote:updated",
+			handler: (payload: MeltQuoteEvent) => void,
 		): void;
 	};
 };
@@ -96,6 +153,46 @@ type ProofsReservedEvent = {
 		amount: AmountLike;
 		unit: string;
 	};
+};
+
+type QuoteIdentityLike = {
+	mintUrl: string;
+	quoteId: string;
+};
+
+type MeltQuoteLike = Omit<ManagerMeltQuoteDto, "amount" | "fee_reserve"> & {
+	amount: AmountLike;
+	fee_reserve?: AmountLike;
+};
+
+type MeltOperationLike = Omit<
+	ManagerMeltOperationDto,
+	| "amount"
+	| "fee_reserve"
+	| "swap_fee"
+	| "inputAmount"
+	| "changeAmount"
+	| "effectiveFee"
+> & {
+	amount?: AmountLike;
+	fee_reserve?: AmountLike;
+	swap_fee?: AmountLike;
+	inputAmount?: AmountLike;
+	changeAmount?: AmountLike;
+	effectiveFee?: AmountLike;
+};
+
+type MeltOperationEvent = {
+	mintUrl: string;
+	operationId: string;
+	operation: MeltOperationLike;
+};
+
+type MeltQuoteEvent = {
+	mintUrl: string;
+	method: string;
+	quoteId: string;
+	quote: MeltQuoteLike;
 };
 
 function createFakeRpc() {
@@ -163,6 +260,63 @@ function createFakeRpc() {
 				managerHistoryGetPaginatedHistory: async (params: unknown) => {
 					calls.push(["managerHistoryGetPaginatedHistory", params]);
 					return [historyEntry("history-1", "42")];
+				},
+				managerMeltQuoteCreate: async (params: unknown) => {
+					calls.push(["managerMeltQuoteCreate", params]);
+					return meltQuote("quote-1", "UNPAID");
+				},
+				managerMeltQuoteGet: async (params: unknown) => {
+					calls.push(["managerMeltQuoteGet", params]);
+					return meltQuote("quote-1", "UNPAID");
+				},
+				managerMeltQuoteListPending: async (params?: unknown) => {
+					calls.push(["managerMeltQuoteListPending", params]);
+					return [meltQuote("quote-1", "UNPAID")];
+				},
+				managerMeltQuoteRefresh: async (params: unknown) => {
+					calls.push(["managerMeltQuoteRefresh", params]);
+					return meltQuote("quote-1", "PENDING");
+				},
+				managerMeltPrepare: async (params: unknown) => {
+					calls.push(["managerMeltPrepare", params]);
+					return meltOperation("melt-1", "prepared");
+				},
+				managerMeltExecute: async (params: unknown) => {
+					calls.push(["managerMeltExecute", params]);
+					return meltOperation("melt-1", "pending");
+				},
+				managerMeltGet: async (params: unknown) => {
+					calls.push(["managerMeltGet", params]);
+					return meltOperation("melt-1", "pending");
+				},
+				managerMeltGetByQuote: async (params: unknown) => {
+					calls.push(["managerMeltGetByQuote", params]);
+					return meltOperation("melt-1", "pending");
+				},
+				managerMeltListByQuote: async (params: unknown) => {
+					calls.push(["managerMeltListByQuote", params]);
+					return [meltOperation("melt-1", "pending")];
+				},
+				managerMeltListPrepared: async () => {
+					calls.push(["managerMeltListPrepared"]);
+					return [meltOperation("melt-1", "prepared")];
+				},
+				managerMeltListInFlight: async () => {
+					calls.push(["managerMeltListInFlight"]);
+					return [meltOperation("melt-1", "pending")];
+				},
+				managerMeltRefresh: async (params: unknown) => {
+					calls.push(["managerMeltRefresh", params]);
+					return meltOperation("melt-1", "finalized");
+				},
+				managerMeltCancel: async (params: unknown) => {
+					calls.push(["managerMeltCancel", params]);
+				},
+				managerMeltReclaim: async (params: unknown) => {
+					calls.push(["managerMeltReclaim", params]);
+				},
+				managerMeltFinalize: async (params: unknown) => {
+					calls.push(["managerMeltFinalize", params]);
 				},
 			},
 			send: {
@@ -326,6 +480,169 @@ describe("createRemoteCocoManager", () => {
 		]);
 	});
 
+	it("forwards Coco React melt quote calls and rehydrates quote amounts", async () => {
+		const fake = createFakeRpc();
+		const manager = createRemoteCocoManager(
+			fake.rpc,
+		) as unknown as RemoteMintManagerSurface;
+
+		const created = await manager.quotes.melt.create({
+			mintUrl: "https://mint.example",
+			method: "bolt11",
+			methodData: { invoice: "lnbc1invoice", amountSats: amountLike("21") },
+			unit: "sat",
+		});
+		const found = await manager.quotes.melt.get({
+			mintUrl: "https://mint.example",
+			quoteId: "quote-1",
+		});
+		const pending = await manager.quotes.melt.listPending({ method: "bolt11" });
+		const refreshed = await manager.quotes.melt.refresh({
+			mintUrl: "https://mint.example",
+			quoteId: "quote-1",
+		});
+
+		expect(created.amount.add("2").toString()).toBe("23");
+		expect(created.fee_reserve?.add("1").toString()).toBe("2");
+		expect(found?.amount.toString()).toBe("21");
+		expect(pending[0]?.quoteId).toBe("quote-1");
+		expect(refreshed.state).toBe("PENDING");
+		expect(fake.calls).toEqual([
+			[
+				"managerMeltQuoteCreate",
+				{
+					mintUrl: "https://mint.example",
+					method: "bolt11",
+					methodData: { invoice: "lnbc1invoice", amountSats: "21" },
+					unit: "sat",
+				},
+			],
+			[
+				"managerMeltQuoteGet",
+				{ mintUrl: "https://mint.example", quoteId: "quote-1" },
+			],
+			["managerMeltQuoteListPending", { method: "bolt11" }],
+			[
+				"managerMeltQuoteRefresh",
+				{ mintUrl: "https://mint.example", quoteId: "quote-1" },
+			],
+		]);
+	});
+
+	it("forwards Coco React melt operation lifecycle calls", async () => {
+		const fake = createFakeRpc();
+		const manager = createRemoteCocoManager(
+			fake.rpc,
+		) as unknown as RemoteMintManagerSurface;
+		const quote = await manager.quotes.melt.create({
+			mintUrl: "https://mint.example",
+			method: "bolt11",
+			methodData: { invoice: "lnbc1invoice" },
+			unit: "sat",
+		});
+		fake.calls.length = 0;
+
+		const prepared = await manager.ops.melt.prepare({ quote, feeIndex: 0 });
+		const executed = await manager.ops.melt.execute(prepared);
+		const current = await manager.ops.melt.get("melt-1");
+		const byQuote = await manager.ops.melt.getByQuote({
+			mintUrl: "https://mint.example",
+			quoteId: "quote-1",
+		});
+		const listByQuote = await manager.ops.melt.listByQuote({
+			mintUrl: "https://mint.example",
+			quoteId: "quote-1",
+		});
+		const preparedList = await manager.ops.melt.listPrepared();
+		const inFlightList = await manager.ops.melt.listInFlight();
+		const refreshed = await manager.ops.melt.refresh("melt-1");
+		await manager.ops.melt.cancel("melt-1", "user cancelled");
+		await manager.ops.melt.reclaim("melt-1", "retry later");
+		await manager.ops.melt.finalize("melt-1");
+
+		expect(prepared.amount?.add("2").toString()).toBe("23");
+		expect(executed.state).toBe("pending");
+		expect(current?.state).toBe("pending");
+		expect(byQuote?.quoteId).toBe("quote-1");
+		expect(listByQuote[0]?.state).toBe("pending");
+		expect(preparedList[0]?.state).toBe("prepared");
+		expect(inFlightList[0]?.state).toBe("pending");
+		expect(refreshed.state).toBe("finalized");
+		expect(fake.calls).toEqual([
+			[
+				"managerMeltPrepare",
+				{
+					quote: {
+						mintUrl: "https://mint.example",
+						quoteId: "quote-1",
+						method: "bolt11",
+					},
+					feeIndex: 0,
+				},
+			],
+			["managerMeltExecute", { operationId: "melt-1" }],
+			["managerMeltGet", { operationId: "melt-1" }],
+			[
+				"managerMeltGetByQuote",
+				{ mintUrl: "https://mint.example", quoteId: "quote-1" },
+			],
+			[
+				"managerMeltListByQuote",
+				{ mintUrl: "https://mint.example", quoteId: "quote-1" },
+			],
+			["managerMeltListPrepared"],
+			["managerMeltListInFlight"],
+			["managerMeltRefresh", { operationId: "melt-1" }],
+			[
+				"managerMeltCancel",
+				{ operationId: "melt-1", reason: "user cancelled" },
+			],
+			[
+				"managerMeltReclaim",
+				{ operationId: "melt-1", reason: "retry later" },
+			],
+			["managerMeltFinalize", { operationId: "melt-1" }],
+		]);
+	});
+
+	it("supports a hook-equivalent melt consumer updating from melt lifecycle events", async () => {
+		const fake = createFakeRpc();
+		const manager = createRemoteCocoManager(
+			fake.rpc,
+		) as unknown as RemoteMintManagerSurface;
+		const states: string[] = [];
+		const unsubscribe = manager.on("melt-op:pending", (payload) => {
+			states.push(String(payload.operation.state));
+			states.push(payload.operation.amount?.add("1").toString() ?? "");
+		});
+
+		fake.emit({
+			event: "melt-op:pending",
+			payload: {
+				mintUrl: "https://mint.example",
+				operationId: "melt-1",
+				operation: meltOperation("melt-1", "pending"),
+			},
+		});
+		unsubscribe();
+		fake.emit({
+			event: "melt-op:pending",
+			payload: {
+				mintUrl: "https://mint.example",
+				operationId: "melt-ignored",
+				operation: meltOperation("melt-ignored", "pending"),
+			},
+		});
+
+		expect(states).toEqual(["pending", "22"]);
+		expect(fake.calls).toEqual([
+			["addMessageListener", "managerEvent"],
+			["managerEventSubscribe", { event: "melt-op:pending" }],
+			["managerEventUnsubscribe", { event: "melt-op:pending" }],
+			["removeMessageListener", "managerEvent"],
+		]);
+	});
+
 	it("delivers mint events through on, off, and unsubscribe behavior", () => {
 		const fake = createFakeRpc();
 		const manager = createRemoteCocoManager(
@@ -479,6 +796,47 @@ function balance(
 	};
 }
 
+function meltQuote(quoteId: string, state: string): ManagerMeltQuoteDto {
+	return {
+		mintUrl: "https://mint.example",
+		method: "bolt11",
+		quoteId,
+		quote: quoteId,
+		request: "lnbc1invoice",
+		amount: "21",
+		unit: "sat",
+		expiry: 1_700_000_000,
+		state,
+		fee_reserve: "1",
+		createdAt: 10,
+		updatedAt: 11,
+	};
+}
+
+function meltOperation(
+	id: string,
+	state: string,
+): ManagerMeltOperationDto {
+	return {
+		id,
+		mintUrl: "https://mint.example",
+		method: "bolt11",
+		methodData: { invoice: "lnbc1invoice" },
+		unit: "sat",
+		state,
+		createdAt: 12,
+		updatedAt: 13,
+		quoteId: "quote-1",
+		needsSwap: true,
+		amount: "21",
+		fee_reserve: "1",
+		swap_fee: "0",
+		inputAmount: "22",
+		inputProofSecrets: ["secret-1"],
+		changeOutputData: [],
+	};
+}
+
 function createPaginatedHistoryConsumer(
 	manager: RemoteMintManagerSurface,
 	pageSize: number,
@@ -522,5 +880,12 @@ function historyEntry(id: string, amount: string): ManagerHistoryEntryDto {
 		token: { token: [{ mint: "https://mint.example", proofs: [] }] },
 		createdAt: 10,
 		updatedAt: 11,
+	};
+}
+
+function amountLike(value: string) {
+	return {
+		toJSON: () => value,
+		toString: () => value,
 	};
 }
