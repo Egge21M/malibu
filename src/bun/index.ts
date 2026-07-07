@@ -130,10 +130,31 @@ const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 			managerSendReclaim: async (params) => {
 				return managerRpcRequestHandlers.managerSendReclaim(params);
 			},
-			managerSendFinalize: async (params) => {
-				return managerRpcRequestHandlers.managerSendFinalize(params);
-			},
-			snapshot: () => walletService.snapshot(),
+				managerSendFinalize: async (params) => {
+					return managerRpcRequestHandlers.managerSendFinalize(params);
+				},
+				managerReceivePrepare: async (params) => {
+					return managerRpcRequestHandlers.managerReceivePrepare(params);
+				},
+				managerReceiveExecute: async (params) => {
+					return managerRpcRequestHandlers.managerReceiveExecute(params);
+				},
+				managerReceiveGet: async (params) => {
+					return managerRpcRequestHandlers.managerReceiveGet(params);
+				},
+				managerReceiveRefresh: async (params) => {
+					return managerRpcRequestHandlers.managerReceiveRefresh(params);
+				},
+				managerReceiveCancel: async (params) => {
+					return managerRpcRequestHandlers.managerReceiveCancel(params);
+				},
+				managerReceiveListPrepared: async () => {
+					return managerRpcRequestHandlers.managerReceiveListPrepared();
+				},
+				managerReceiveListInFlight: async () => {
+					return managerRpcRequestHandlers.managerReceiveListInFlight();
+				},
+				snapshot: () => walletService.snapshot(),
 			addMint: (params) => walletService.addMint(params),
 			restoreMint: (params) => walletService.restoreMint(params),
 			createMintQuote: (params) => walletService.createMintQuote(params),

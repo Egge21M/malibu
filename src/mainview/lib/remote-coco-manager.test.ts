@@ -11,6 +11,8 @@ import type {
 	ManagerMintWithKeysetsDto,
 	ManagerMintOperationDto,
 	ManagerPendingMintCheckResultDto,
+	ManagerPreparedReceiveOperationDto,
+	ManagerReceiveOperationDto,
 	ManagerSendExecuteResultDto,
 	ManagerSendOperationDto,
 } from "@/lib/manager-rpc";
@@ -92,6 +94,19 @@ type RemoteMintManagerSurface = {
 			reclaim: (operationId: string) => Promise<void>;
 			finalize: (operationId: string) => Promise<void>;
 		};
+		receive: {
+			prepare: (input: {
+				token: unknown;
+			}) => Promise<RemoteReceiveOperation>;
+			execute: (
+				operationOrId: string | RemoteReceiveOperation,
+			) => Promise<RemoteReceiveOperation>;
+			get: (operationId: string) => Promise<RemoteReceiveOperation | null>;
+			refresh: (operationId: string) => Promise<RemoteReceiveOperation>;
+			cancel: (operationId: string, reason?: string) => Promise<void>;
+			listPrepared: () => Promise<RemoteReceiveOperation[]>;
+			listInFlight: () => Promise<RemoteReceiveOperation[]>;
+		};
 	};
 	on: {
 		(
@@ -114,6 +129,10 @@ type RemoteMintManagerSurface = {
 			event: "send:pending",
 			handler: (payload: SendPendingEvent) => void,
 		): () => void;
+		(
+			event: "receive-op:prepared",
+			handler: (payload: ReceiveOperationEvent) => void,
+		): () => void;
 	};
 	off: {
 		(
@@ -135,6 +154,10 @@ type RemoteMintManagerSurface = {
 		(
 			event: "send:pending",
 			handler: (payload: SendPendingEvent) => void,
+		): void;
+		(
+			event: "receive-op:prepared",
+			handler: (payload: ReceiveOperationEvent) => void,
 		): void;
 	};
 };
@@ -189,6 +212,20 @@ type SendPendingEvent = {
 	operationId: string;
 	operation: RemoteSendOperation;
 	token: unknown;
+};
+
+type RemoteReceiveOperation = Omit<
+	ManagerReceiveOperationDto,
+	"amount" | "fee"
+> & {
+	amount: AmountLike;
+	fee?: AmountLike;
+};
+
+type ReceiveOperationEvent = {
+	mintUrl: string;
+	operationId: string;
+	operation: RemoteReceiveOperation;
 };
 
 function createFakeRpc() {
@@ -347,6 +384,44 @@ function createFakeRpc() {
 				},
 				managerSendFinalize: async (params: unknown) => {
 					calls.push(["managerSendFinalize", params]);
+				},
+				managerReceivePrepare: async (params: unknown) => {
+					calls.push(["managerReceivePrepare", params]);
+					return receiveOperation("receive-1", "prepared", {
+						fee: "1",
+						outputData: { outputs: [] },
+					}) as ManagerPreparedReceiveOperationDto;
+				},
+				managerReceiveExecute: async (params: unknown) => {
+					calls.push(["managerReceiveExecute", params]);
+					return receiveOperation("receive-1", "finalized");
+				},
+				managerReceiveGet: async (params: unknown) => {
+					calls.push(["managerReceiveGet", params]);
+					return receiveOperation("receive-1", "prepared", {
+						fee: "1",
+						outputData: { outputs: [] },
+					});
+				},
+				managerReceiveRefresh: async (params: unknown) => {
+					calls.push(["managerReceiveRefresh", params]);
+					return receiveOperation("receive-1", "executing");
+				},
+				managerReceiveCancel: async (params: unknown) => {
+					calls.push(["managerReceiveCancel", params]);
+				},
+				managerReceiveListPrepared: async () => {
+					calls.push(["managerReceiveListPrepared"]);
+					return [
+						receiveOperation("receive-1", "prepared", {
+							fee: "1",
+							outputData: { outputs: [] },
+						}) as ManagerPreparedReceiveOperationDto,
+					];
+				},
+				managerReceiveListInFlight: async () => {
+					calls.push(["managerReceiveListInFlight"]);
+					return [receiveOperation("receive-2", "executing")];
 				},
 			},
 			send: {
@@ -597,6 +672,43 @@ describe("createRemoteCocoManager", () => {
 			["managerSendCancel", { operationId: "send-1" }],
 			["managerSendReclaim", { operationId: "send-1" }],
 			["managerSendFinalize", { operationId: "send-1" }],
+		]);
+	});
+
+	it("forwards Coco React receive lifecycle calls and rehydrates operation amounts", async () => {
+		const fake = createFakeRpc();
+		const manager = createRemoteCocoManager(
+			fake.rpc,
+		) as unknown as RemoteMintManagerSurface;
+
+		const prepared = await manager.ops.receive.prepare({
+			token: "cashuA...",
+		});
+		const executed = await manager.ops.receive.execute(prepared);
+		const current = await manager.ops.receive.get("receive-1");
+		const refreshed = await manager.ops.receive.refresh("receive-1");
+		await manager.ops.receive.cancel("receive-1", "user");
+		const preparedOperations = await manager.ops.receive.listPrepared();
+		const inFlightOperations = await manager.ops.receive.listInFlight();
+
+		expect(prepared.amount.add("2").toString()).toBe("36");
+		expect(prepared.fee?.add("2").toString()).toBe("3");
+		expect(executed.state).toBe("finalized");
+		expect(current?.state).toBe("prepared");
+		expect(refreshed.state).toBe("executing");
+		expect(preparedOperations[0]?.fee?.add("2").toString()).toBe("3");
+		expect(inFlightOperations[0]?.id).toBe("receive-2");
+		expect(fake.calls).toEqual([
+			["managerReceivePrepare", { token: "cashuA..." }],
+			["managerReceiveExecute", { operationId: "receive-1" }],
+			["managerReceiveGet", { operationId: "receive-1" }],
+			["managerReceiveRefresh", { operationId: "receive-1" }],
+			[
+				"managerReceiveCancel",
+				{ operationId: "receive-1", reason: "user" },
+			],
+			["managerReceiveListPrepared"],
+			["managerReceiveListInFlight"],
 		]);
 	});
 
@@ -879,9 +991,18 @@ describe("createRemoteCocoManager", () => {
 		);
 		expect(
 			() =>
-				(manager.ops as unknown as Record<string, unknown>)["receive"],
+				(manager.ops as unknown as Record<string, unknown>)["melt"],
 		).toThrow(
-			'Remote Coco manager operations API does not support "receive" yet',
+			'Remote Coco manager operations API does not support "melt" yet',
+		);
+		expect(
+			() =>
+				(
+					(manager.ops as unknown as { receive: Record<string, unknown> })
+						.receive
+				)["recover"],
+		).toThrow(
+			'Remote Coco manager receive ops API does not support "recover" yet',
 		);
 		expect(
 			() =>
@@ -1016,8 +1137,27 @@ function createMintOperationConsumer(
 			unsubscribe?.();
 			unsubscribe = undefined;
 		},
-		};
-	}
+	};
+}
+
+function receiveOperation(
+	id: string,
+	state: ManagerReceiveOperationDto["state"],
+	overrides: Partial<ManagerReceiveOperationDto> = {},
+): ManagerReceiveOperationDto {
+	return {
+		id,
+		mintUrl: "https://mint.example",
+		unit: "sat",
+		amount: "34",
+		inputProofs: [{ secret: "secret-1" }],
+		createdAt: 14,
+		updatedAt: 15,
+		state,
+		source: { type: "manual-token" },
+		...overrides,
+	};
+}
 
 function sendOperation(
 	id: string,

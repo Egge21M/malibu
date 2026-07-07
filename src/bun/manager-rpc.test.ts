@@ -8,6 +8,8 @@ import type {
 	ManagerEventName,
 	ManagerHistoryEntryDto,
 	ManagerMintOperationDto,
+	ManagerPreparedReceiveOperationDto,
+	ManagerReceiveOperationDto,
 	ManagerSendOperationDto,
 } from "../mainview/lib/manager-rpc.ts";
 
@@ -494,6 +496,99 @@ describe("manager RPC handlers", () => {
 		]);
 	});
 
+	it("maps receive operation requests and serializes prepared results", async () => {
+		const calls: unknown[] = [];
+		const manager = createFakeManager(calls);
+		const handlers = createManagerRpcRequestHandlers(async () => manager);
+
+		await expect(
+			handlers.managerReceivePrepare({ token: "cashuA..." }),
+		).resolves.toEqual(
+			serializedPreparedReceiveOperation("receive-1", {
+				fee: "1",
+				outputData: { outputs: [] },
+			}),
+		);
+		await expect(
+			handlers.managerReceiveExecute({ operationId: "receive-1" }),
+		).resolves.toEqual(serializedReceiveOperation("receive-1", "finalized"));
+		await expect(
+			handlers.managerReceiveGet({ operationId: "receive-1" }),
+		).resolves.toEqual(
+			serializedPreparedReceiveOperation("receive-1", {
+				fee: "1",
+				outputData: { outputs: [] },
+			}),
+		);
+		await expect(
+			handlers.managerReceiveRefresh({ operationId: "receive-1" }),
+		).resolves.toEqual(serializedReceiveOperation("receive-1", "executing"));
+		await handlers.managerReceiveCancel({
+			operationId: "receive-1",
+			reason: "user",
+		});
+		await expect(handlers.managerReceiveListPrepared()).resolves.toEqual([
+			serializedPreparedReceiveOperation("receive-1", {
+				fee: "1",
+				outputData: { outputs: [] },
+			}),
+		]);
+		await expect(handlers.managerReceiveListInFlight()).resolves.toEqual([
+			serializedReceiveOperation("receive-2", "executing"),
+		]);
+
+		expect(calls).toEqual([
+			["receive.prepare", { token: "cashuA..." }],
+			["receive.execute", "receive-1"],
+			["receive.get", "receive-1"],
+			["receive.refresh", "receive-1"],
+			["receive.cancel", "receive-1", "user"],
+			["receive.listPrepared"],
+			["receive.listInFlight"],
+		]);
+	});
+
+	it("forwards subscribed receive lifecycle events with serialized operations", async () => {
+		const calls: unknown[] = [];
+		const emitted: unknown[] = [];
+		const manager = createFakeManager(calls);
+		const forwarder = createManagerEventForwarder(
+			async () => manager,
+			(event) => emitted.push(event),
+		);
+
+		forwarder.subscribe({ event: "receive-op:prepared" });
+		await Promise.resolve();
+
+		manager.emit("receive-op:prepared", {
+			mintUrl: "https://mint.example",
+			operationId: "receive-1",
+			operation: rawReceiveOperation("receive-1", "prepared", {
+				fee: amountLike("1"),
+				outputData: { outputs: [] },
+			}),
+		});
+		forwarder.unsubscribe({ event: "receive-op:prepared" });
+
+		expect(emitted).toEqual([
+			{
+				event: "receive-op:prepared",
+				payload: {
+					mintUrl: "https://mint.example",
+					operationId: "receive-1",
+					operation: serializedReceiveOperation("receive-1", "prepared", {
+						fee: "1",
+						outputData: { outputs: [] },
+					}),
+				},
+			},
+		]);
+		expect(calls).toEqual([
+			["on", "receive-op:prepared"],
+			["off", "receive-op:prepared"],
+		]);
+	});
+
 	it("keeps one manager event subscription for multiple renderer listeners", async () => {
 		const calls: unknown[] = [];
 		const emitted: unknown[] = [];
@@ -688,6 +783,46 @@ function createFakeManager(calls: unknown[]) {
 				},
 				finalize: async (operationId: string) => {
 					calls.push(["send.finalize", operationId]);
+				},
+			},
+			receive: {
+				prepare: async (params: unknown) => {
+					calls.push(["receive.prepare", params]);
+					return rawReceiveOperation("receive-1", "prepared", {
+						fee: amountLike("1"),
+						outputData: { outputs: [] },
+					}) as RawPreparedReceiveOperation;
+				},
+				execute: async (operationId: string) => {
+					calls.push(["receive.execute", operationId]);
+					return rawReceiveOperation(operationId, "finalized");
+				},
+				get: async (operationId: string) => {
+					calls.push(["receive.get", operationId]);
+					return rawReceiveOperation(operationId, "prepared", {
+						fee: amountLike("1"),
+						outputData: { outputs: [] },
+					});
+				},
+				refresh: async (operationId: string) => {
+					calls.push(["receive.refresh", operationId]);
+					return rawReceiveOperation(operationId, "executing");
+				},
+				cancel: async (operationId: string, reason?: string) => {
+					calls.push(["receive.cancel", operationId, reason]);
+				},
+				listPrepared: async () => {
+					calls.push(["receive.listPrepared"]);
+					return [
+						rawReceiveOperation("receive-1", "prepared", {
+							fee: amountLike("1"),
+							outputData: { outputs: [] },
+						}) as RawPreparedReceiveOperation,
+					];
+				},
+				listInFlight: async () => {
+					calls.push(["receive.listInFlight"]);
+					return [rawReceiveOperation("receive-2", "executing")];
 				},
 			},
 		},
@@ -924,6 +1059,64 @@ function rawToken(operationId: string) {
 				proofs: [{ id: operationId, amount: 21 }],
 			},
 		],
+	};
+}
+
+function rawReceiveOperation<TState extends ManagerReceiveOperationDto["state"]>(
+	id: string,
+	state: TState,
+	overrides: Record<string, unknown> = {},
+) {
+	return {
+		id,
+		mintUrl: "https://mint.example",
+		unit: "sat",
+		amount: amountLike("34"),
+		inputProofs: [{ secret: "secret-1" }],
+		createdAt: 14,
+		updatedAt: 15,
+		state,
+		source: { type: "manual-token" as const },
+		...overrides,
+	};
+}
+
+type RawPreparedReceiveOperation = ReturnType<
+	typeof rawReceiveOperation<"prepared">
+> & {
+	fee: unknown;
+	outputData: unknown;
+};
+
+function serializedReceiveOperation(
+	id: string,
+	state: ManagerReceiveOperationDto["state"],
+	overrides: Partial<ManagerReceiveOperationDto> = {},
+): ManagerReceiveOperationDto {
+	return {
+		id,
+		mintUrl: "https://mint.example",
+		unit: "sat",
+		amount: "34",
+		inputProofs: [{ secret: "secret-1" }],
+		createdAt: 14,
+		updatedAt: 15,
+		state,
+		source: { type: "manual-token" },
+		...overrides,
+	};
+}
+
+function serializedPreparedReceiveOperation(
+	id: string,
+	overrides: Partial<ManagerPreparedReceiveOperationDto> = {},
+): ManagerPreparedReceiveOperationDto {
+	return {
+		...serializedReceiveOperation(id, "prepared"),
+		fee: "1",
+		outputData: { outputs: [] },
+		...overrides,
+		state: "prepared",
 	};
 }
 

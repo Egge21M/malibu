@@ -1,3 +1,5 @@
+import type { Token } from "@cashu/cashu-ts";
+
 export type ManagerMintDto = {
 	mintUrl: string;
 	name: string;
@@ -45,12 +47,18 @@ export type ManagerSendOperationEventName =
 	| "send:finalized"
 	| "send:rolled-back";
 
+export type ManagerReceiveOperationEventName =
+	| "receive-op:prepared"
+	| "receive-op:finalized"
+	| "receive-op:rolled-back";
+
 export type ManagerEventName =
 	| ManagerMintEventName
 	| ManagerBalanceRefreshEventName
 	| ManagerHistoryEventName
 	| ManagerMintOperationEventName
-	| ManagerSendOperationEventName;
+	| ManagerSendOperationEventName
+	| ManagerReceiveOperationEventName;
 
 export type ManagerMintWithKeysetsDto = {
 	mint: ManagerMintDto;
@@ -167,6 +175,50 @@ export type ManagerPendingMintCheckResultDto = Record<string, unknown> & {
 	};
 };
 
+export type ManagerReceiveOperationStateDto =
+	| "init"
+	| "prepared"
+	| "executing"
+	| "finalized"
+	| "rolled_back";
+
+export type ManagerReceiveOperationSourceDto =
+	| {
+			type: "manual-token";
+		}
+	| {
+			type: "payment-request";
+			requestOperationId: string;
+			requestId?: string;
+			attemptId: string;
+			transport: "inband" | "nostr" | "post";
+			transportMessageId?: string;
+			senderPubkey?: string;
+			memo?: string;
+		};
+
+export type ManagerReceiveOperationDto = {
+	id: string;
+	mintUrl: string;
+	unit: string;
+	amount: string;
+	inputProofs: unknown[];
+	createdAt: number;
+	updatedAt: number;
+	state: ManagerReceiveOperationStateDto;
+	error?: string;
+	source?: ManagerReceiveOperationSourceDto;
+	fee?: string;
+	outputData?: unknown;
+};
+
+export type ManagerPreparedReceiveOperationDto =
+	ManagerReceiveOperationDto & {
+		state: "prepared";
+		fee: string;
+		outputData: unknown;
+	};
+
 export type ManagerEventPayloads = {
 	"mint:added": ManagerMintWithKeysetsDto;
 	"mint:updated": ManagerMintWithKeysetsDto;
@@ -236,6 +288,21 @@ export type ManagerEventPayloads = {
 		mintUrl: string;
 		operationId: string;
 		operation: ManagerSendOperationDto;
+	};
+	"receive-op:prepared": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerReceiveOperationDto;
+	};
+	"receive-op:finalized": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerReceiveOperationDto;
+	};
+	"receive-op:rolled-back": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerReceiveOperationDto;
 	};
 };
 
@@ -308,6 +375,18 @@ export type ManagerSendExecuteParams = ManagerSendOperationIdParams & {
 export type ManagerSendExecuteResultDto = {
 	operation: ManagerSendOperationDto;
 	token: unknown;
+};
+
+export type ManagerPrepareReceiveParams = {
+	token: Token | string;
+};
+
+export type ManagerOperationIdParams = {
+	operationId: string;
+};
+
+export type ManagerCancelOperationParams = ManagerOperationIdParams & {
+	reason?: string;
 };
 
 export type ManagerRpcRequests = {
@@ -426,6 +505,34 @@ export type ManagerRpcRequests = {
 	managerSendFinalize: {
 		params: ManagerSendOperationIdParams;
 		response: void;
+	};
+	managerReceivePrepare: {
+		params: ManagerPrepareReceiveParams;
+		response: ManagerPreparedReceiveOperationDto;
+	};
+	managerReceiveExecute: {
+		params: ManagerOperationIdParams;
+		response: ManagerReceiveOperationDto;
+	};
+	managerReceiveGet: {
+		params: ManagerOperationIdParams;
+		response: ManagerReceiveOperationDto | null;
+	};
+	managerReceiveRefresh: {
+		params: ManagerOperationIdParams;
+		response: ManagerReceiveOperationDto;
+	};
+	managerReceiveCancel: {
+		params: ManagerCancelOperationParams;
+		response: void;
+	};
+	managerReceiveListPrepared: {
+		params: undefined;
+		response: ManagerPreparedReceiveOperationDto[];
+	};
+	managerReceiveListInFlight: {
+		params: undefined;
+		response: ManagerReceiveOperationDto[];
 	};
 };
 
