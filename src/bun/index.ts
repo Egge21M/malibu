@@ -208,25 +208,7 @@ const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 			managerMeltFinalize: async (params) => {
 				return managerRpcRequestHandlers.managerMeltFinalize(params);
 			},
-			snapshot: () => walletService.snapshot(),
 			dataDir: () => walletService.getDataDir(),
-			addMint: (params) => walletService.addMint(params),
-			restoreMint: (params) => walletService.restoreMint(params),
-			createMintQuote: (params) => walletService.createMintQuote(params),
-			refreshMintOperation: (params) =>
-				walletService.refreshMintOperation(params),
-			prepareSend: (params) => walletService.prepareSend(params),
-			executeSend: (params) => walletService.executeSend(params),
-			cancelSend: (params) => walletService.cancelSend(params),
-			reclaimSend: (params) => walletService.reclaimSend(params),
-			prepareReceive: (params) => walletService.prepareReceive(params),
-			executeReceive: (params) => walletService.executeReceive(params),
-			cancelReceive: (params) => walletService.cancelReceive(params),
-			prepareMelt: (params) => walletService.prepareMelt(params),
-			executeMelt: (params) => walletService.executeMelt(params),
-			cancelMelt: (params) => walletService.cancelMelt(params),
-			refreshMeltOperation: (params) =>
-				walletService.refreshMeltOperation(params),
 		},
 		messages: {
 			managerEventSubscribe: (params) =>

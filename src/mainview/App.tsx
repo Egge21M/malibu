@@ -79,8 +79,7 @@ import {
 } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { walletClient } from "@/lib/wallet-client";
-import { getRemoteCocoManager } from "@/lib/wallet-client";
+import { getRemoteCocoManager, walletClient } from "@/lib/wallet-client";
 import type { ManagerEventName } from "@/lib/manager-rpc";
 import type {
 	BalanceSnapshotDto,
@@ -90,7 +89,7 @@ import type {
 	WalletOperationDto,
 	WalletQuoteDto,
 	WalletSnapshot,
-} from "@/lib/wallet-rpc";
+} from "@/lib/wallet-view";
 
 type StatusState = {
 	kind: "success" | "error" | "info";
