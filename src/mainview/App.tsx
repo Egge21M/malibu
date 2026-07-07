@@ -45,6 +45,7 @@ import {
 	Navigate,
 	Route,
 	Routes,
+	useLocation,
 } from "react-router";
 
 import {
@@ -62,11 +63,22 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
+import {
+	Empty,
+	EmptyHeader,
+	EmptyTitle,
+} from "@/components/ui/empty";
+import {
+	Field as FieldRoot,
+	FieldGroup,
+	FieldLabel,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import {
 	Select,
 	SelectContent,
+	SelectGroup,
 	SelectItem,
 	SelectTrigger,
 	SelectValue,
@@ -78,6 +90,23 @@ import {
 	TabsTrigger,
 } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import {
+	Sidebar,
+	SidebarContent,
+	SidebarGroup,
+	SidebarGroupContent,
+	SidebarGroupLabel,
+	SidebarHeader,
+	SidebarInset,
+	SidebarMenu,
+	SidebarMenuButton,
+	SidebarMenuItem,
+	SidebarProvider,
+	SidebarRail,
+	SidebarSeparator,
+	SidebarTrigger,
+} from "@/components/ui/sidebar";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { getRemoteCocoManager, walletClient } from "@/lib/wallet-client";
 import type { ManagerEventName } from "@/lib/manager-rpc";
@@ -800,157 +829,173 @@ function WalletShell() {
 	useWheelScrollFallback();
 
 	return (
-		<div className="min-h-svh bg-background text-foreground">
-			<header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur">
-				<div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
-					<div className="flex min-w-0 items-center gap-3">
-						<div className="flex size-10 shrink-0 items-center justify-center border bg-primary text-primary-foreground shadow-sm">
-							<Wallet className="size-4" />
+		<TooltipProvider>
+			<SidebarProvider
+				style={
+					{
+						"--sidebar-width": "15rem",
+					} as React.CSSProperties
+				}
+			>
+				<AppSidebar />
+				<SidebarInset className="min-h-svh bg-background text-foreground">
+					<header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur">
+						<div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+							<div className="flex min-w-0 items-center gap-3">
+								<SidebarTrigger aria-label="Toggle wallet navigation" />
+								<div className="flex size-10 shrink-0 items-center justify-center border bg-primary text-primary-foreground shadow-sm">
+									<Wallet className="size-4" />
+								</div>
+								<div className="min-w-0">
+									<h1 className="truncate text-base font-semibold tracking-wider uppercase">
+										Malibu
+									</h1>
+									<p className="hidden truncate text-xs text-muted-foreground sm:block">
+										Private Cashu wallet powered by Coco
+									</p>
+								</div>
+							</div>
+							<div className="flex shrink-0 items-center gap-2">
+								<Badge variant={walletConnected ? "default" : "secondary"}>
+									{walletConnected ? "connected" : "connecting"}
+								</Badge>
+								<Badge
+									variant={wallet.trustedMints.length ? "default" : "secondary"}
+									className="hidden sm:inline-flex"
+								>
+									{wallet.trustedMints.length} trusted mints
+								</Badge>
+								<Button
+									type="button"
+									variant="outline"
+									size="icon-sm"
+									aria-label="Refresh wallet"
+									disabled={wallet.busy !== null}
+									onClick={() => void wallet.loadSnapshot()}
+								>
+									<RefreshCw
+										className={cn(wallet.busy === "refresh" && "animate-spin")}
+									/>
+								</Button>
+							</div>
 						</div>
-						<div className="min-w-0">
-							<h1 className="truncate text-base font-semibold tracking-wider uppercase">
-								Malibu
-							</h1>
-							<p className="hidden truncate text-xs text-muted-foreground sm:block">
-								Private Cashu wallet powered by Coco
-							</p>
-						</div>
-					</div>
-					<div className="flex shrink-0 items-center gap-2">
-						<Badge variant={walletConnected ? "default" : "secondary"}>
-							{walletConnected ? "connected" : "connecting"}
-						</Badge>
-						<Badge
-							variant={wallet.trustedMints.length ? "default" : "secondary"}
-							className="hidden sm:inline-flex"
-						>
-							{wallet.trustedMints.length} trusted mints
-						</Badge>
-						<Button
-							type="button"
-							variant="outline"
-							size="icon-sm"
-							aria-label="Refresh wallet"
-							disabled={wallet.busy !== null}
-							onClick={() => void wallet.loadSnapshot()}
-						>
-							<RefreshCw
-								className={wallet.busy === "refresh" ? "animate-spin" : ""}
-							/>
-						</Button>
-					</div>
-				</div>
-			</header>
+					</header>
 
-			<div className="mx-auto grid max-w-7xl gap-5 px-4 py-5 pb-24 sm:px-6 lg:grid-cols-[15rem_minmax(0,1fr)] lg:py-7 lg:pb-7">
-				<aside className="hidden lg:block">
-					<DesktopNav />
-				</aside>
-				<main className="min-w-0 space-y-5">
-					{wallet.status ? <StatusAlert status={wallet.status} /> : null}
-					<Routes>
-						<Route index element={<OverviewScreen />} />
-						<Route path="mint" element={<Navigate to="/receive" replace />} />
-						<Route path="mints" element={<MintsScreen />} />
-						<Route path="send" element={<SendScreen />} />
-						<Route path="receive" element={<ReceiveScreen />} />
-						<Route path="melt" element={<Navigate to="/send" replace />} />
-						<Route path="activity" element={<ActivityScreen />} />
-						<Route path="settings" element={<SettingsScreen />} />
-						<Route path="*" element={<Navigate to="/" replace />} />
-					</Routes>
-				</main>
-			</div>
-
-			<MobileNav />
-		</div>
+					<div className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 lg:py-7">
+						<main className="flex min-w-0 flex-col gap-5">
+							{wallet.status ? <StatusAlert status={wallet.status} /> : null}
+							<Routes>
+								<Route index element={<OverviewScreen />} />
+								<Route path="mint" element={<Navigate to="/receive" replace />} />
+								<Route path="mints" element={<MintsScreen />} />
+								<Route path="send" element={<SendScreen />} />
+								<Route path="receive" element={<ReceiveScreen />} />
+								<Route path="melt" element={<Navigate to="/send" replace />} />
+								<Route path="activity" element={<ActivityScreen />} />
+								<Route path="settings" element={<SettingsScreen />} />
+								<Route path="*" element={<Navigate to="/" replace />} />
+							</Routes>
+						</main>
+					</div>
+				</SidebarInset>
+			</SidebarProvider>
+		</TooltipProvider>
 	);
 }
 
-function DesktopNav() {
+function AppSidebar() {
 	const wallet = useWallet();
 
 	return (
-		<nav className="sticky top-24 space-y-4">
-			<Card size="sm" className="bg-primary/5 ring-primary/15">
-				<CardHeader>
-					<CardTitle className="flex items-center gap-2 text-sm text-primary">
-						<Activity className="size-4" />
-						Balance
-					</CardTitle>
-					<CardDescription>Spendable proofs</CardDescription>
-				</CardHeader>
-				<CardContent className="space-y-4">
-					{wallet.totals.map((total) => (
-						<div
-							key={total.unit}
-							className="border-l-2 border-primary/50 pl-3"
+		<Sidebar collapsible="icon">
+			<SidebarHeader>
+				<SidebarMenu>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							render={<NavLink to="/" />}
+							size="lg"
+							tooltip="Overview"
 						>
-							<div className="flex min-w-0 items-baseline gap-2">
-								<span className="truncate text-3xl font-semibold tabular-nums">
-									{formatAmount(total.spendable)}
+							<div className="flex size-8 shrink-0 items-center justify-center border bg-sidebar-primary text-sidebar-primary-foreground">
+								<Wallet />
+							</div>
+							<div className="grid min-w-0 flex-1 text-left leading-tight group-data-[collapsible=icon]:hidden">
+								<span className="truncate text-sm font-semibold tracking-wider uppercase">
+									Malibu
 								</span>
-								<span className="text-xs font-semibold uppercase text-primary">
-									{total.unit}
+								<span className="truncate text-xs text-sidebar-foreground/70">
+									Cashu wallet
 								</span>
 							</div>
-							<div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
-								<span>total {formatAmount(total.total)}</span>
-								<span>reserved {formatAmount(total.reserved)}</span>
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+				</SidebarMenu>
+			</SidebarHeader>
+			<SidebarContent>
+				<SidebarGroup className="group-data-[collapsible=icon]:hidden">
+					<SidebarGroupLabel>Balance</SidebarGroupLabel>
+					<SidebarGroupContent className="flex flex-col gap-4 px-2">
+						{wallet.totals.map((total) => (
+							<div
+								key={total.unit}
+								className="border-l-2 border-sidebar-primary/50 pl-3"
+							>
+								<div className="flex min-w-0 items-baseline gap-2">
+									<span className="truncate text-3xl font-semibold tabular-nums">
+										{formatAmount(total.spendable)}
+									</span>
+									<span className="text-xs font-semibold uppercase text-sidebar-primary">
+										{total.unit}
+									</span>
+								</div>
+								<div className="mt-2 flex flex-wrap gap-3 text-xs text-sidebar-foreground/70">
+									<span>total {formatAmount(total.total)}</span>
+									<span>reserved {formatAmount(total.reserved)}</span>
+								</div>
 							</div>
-						</div>
-					))}
-				</CardContent>
-			</Card>
-			<div className="grid gap-1">
-				{PRIMARY_ROUTES.map((route) => (
-					<NavItem key={route.path} route={route} />
-				))}
-			</div>
-		</nav>
+						))}
+					</SidebarGroupContent>
+				</SidebarGroup>
+				<SidebarSeparator />
+				<SidebarGroup>
+					<SidebarGroupLabel>Wallet</SidebarGroupLabel>
+					<SidebarGroupContent>
+						<SidebarMenu>
+							{PRIMARY_ROUTES.map((route) => (
+								<SidebarRouteItem key={route.path} route={route} />
+							))}
+						</SidebarMenu>
+					</SidebarGroupContent>
+				</SidebarGroup>
+			</SidebarContent>
+			<SidebarRail />
+		</Sidebar>
 	);
 }
 
-function MobileNav() {
-	return (
-		<nav className="fixed inset-x-0 bottom-0 z-20 border-t bg-background/95 px-2 py-2 backdrop-blur lg:hidden">
-			<div className="mx-auto grid max-w-lg grid-cols-6 gap-1">
-				{PRIMARY_ROUTES.map((route) => (
-					<NavItem key={route.path} route={route} compact />
-				))}
-			</div>
-		</nav>
-	);
-}
-
-function NavItem({
+function SidebarRouteItem({
 	route,
-	compact = false,
 }: {
 	route: RouteItem;
-	compact?: boolean;
 }) {
 	const Icon = route.icon;
+	const location = useLocation();
+	const isActive =
+		route.path === "/"
+			? location.pathname === "/"
+			: location.pathname.startsWith(route.path);
 
 	return (
-		<NavLink
-			to={route.path}
-			end={route.path === "/"}
-			title={route.label}
-			aria-label={route.label}
-			className={({ isActive }) =>
-				cn(
-					"flex min-w-0 items-center gap-2 border px-3 py-2 text-xs font-semibold tracking-wider uppercase transition-colors",
-					compact && "h-12 justify-center px-1 py-1",
-					isActive
-						? "border-primary bg-primary text-primary-foreground"
-						: "border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground",
-				)
-			}
-		>
-			<Icon className="size-4 shrink-0" />
-			<span className={compact ? "sr-only" : "truncate"}>{route.label}</span>
-		</NavLink>
+		<SidebarMenuItem>
+			<SidebarMenuButton
+				render={<NavLink to={route.path} end={route.path === "/"} />}
+				isActive={isActive}
+				tooltip={route.label}
+			>
+				<Icon />
+				<span>{route.label}</span>
+			</SidebarMenuButton>
+		</SidebarMenuItem>
 	);
 }
 
@@ -1024,7 +1069,7 @@ function OverviewScreen() {
 								onClick={() => void wallet.loadSnapshot()}
 							>
 								<RefreshCw
-									className={wallet.busy === "refresh" ? "animate-spin" : ""}
+									className={cn(wallet.busy === "refresh" && "animate-spin")}
 								/>
 							</Button>
 						</div>
@@ -1097,7 +1142,7 @@ function OverviewScreen() {
 						</CardTitle>
 						<CardDescription>{walletState.detail}</CardDescription>
 					</CardHeader>
-					<CardContent className="space-y-4">
+					<CardContent className="flex flex-col gap-4">
 						<ReadinessRow
 							icon={Database}
 							label="Wallet service"
@@ -1135,7 +1180,7 @@ function OverviewScreen() {
 			</div>
 
 			<div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,0.8fr)]">
-				<section className="min-w-0 space-y-3">
+				<section className="flex min-w-0 flex-col gap-3">
 					<SectionTitle
 						icon={Landmark}
 						title="Mint allocation"
@@ -1147,7 +1192,7 @@ function OverviewScreen() {
 					/>
 				</section>
 
-				<section className="min-w-0 space-y-3">
+				<section className="flex min-w-0 flex-col gap-3">
 					<SectionTitle
 						icon={Activity}
 						title="Active operations"
@@ -1164,7 +1209,7 @@ function OverviewScreen() {
 				</section>
 			</div>
 
-			<section className="min-w-0 space-y-3">
+			<section className="flex min-w-0 flex-col gap-3">
 				<div className="flex items-center justify-between gap-3">
 					<h3 className="flex items-center gap-2 text-sm font-semibold tracking-wider uppercase">
 						<History className="size-4" />
@@ -1173,10 +1218,11 @@ function OverviewScreen() {
 					</h3>
 					<Button
 						render={<NavLink to="/activity" />}
+						nativeButton={false}
 						variant="outline"
 						size="sm"
 					>
-						<History />
+						<History data-icon="inline-start" />
 						View all
 					</Button>
 				</div>
@@ -1191,7 +1237,7 @@ function MintsScreen() {
 
 	return (
 		<div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,0.8fr)]">
-			<section className="min-w-0 space-y-5">
+			<section className="flex min-w-0 flex-col gap-5">
 				<PageHeader
 					icon={Landmark}
 					title="Mints"
@@ -1200,7 +1246,7 @@ function MintsScreen() {
 				<MintManagementCard />
 			</section>
 
-			<section className="min-w-0 space-y-3">
+			<section className="flex min-w-0 flex-col gap-3">
 				<SectionTitle
 					icon={Activity}
 					title="Balances by mint"
@@ -1234,11 +1280,11 @@ function SendScreen() {
 					<Tabs defaultValue="ecash" className="gap-5">
 						<TabsList className="grid h-auto w-full grid-cols-2 sm:w-fit">
 							<TabsTrigger value="ecash" className="h-11">
-								<Send />
+								<Send data-icon="inline-start" />
 								Ecash
 							</TabsTrigger>
 							<TabsTrigger value="lightning" className="h-11">
-								<Zap />
+								<Zap data-icon="inline-start" />
 								Lightning
 							</TabsTrigger>
 						</TabsList>
@@ -1259,7 +1305,7 @@ function SendEcashPanel() {
 	const wallet = useWallet();
 
 	return (
-		<div className="space-y-5">
+		<div className="flex flex-col gap-5">
 			<div className="grid gap-2 border-l-2 border-primary/50 pl-3">
 				<h3 className="text-sm font-semibold tracking-wider uppercase">
 					Ecash token
@@ -1268,42 +1314,41 @@ function SendEcashPanel() {
 					Reserve proofs and create a Cashu token for the recipient.
 				</p>
 			</div>
-			<form
-				className="grid gap-4 lg:grid-cols-[1fr_10rem_7rem_1fr_auto]"
-				onSubmit={wallet.handlePrepareSend}
-			>
-				<Field label="Mint">
-					<MintPicker
-						value={wallet.sendMintUrl}
-						mints={wallet.trustedMints}
-						onChange={wallet.setSendMintUrl}
-					/>
-				</Field>
-				<Field label="Amount">
-					<Input
-						inputMode="numeric"
-						value={wallet.sendAmount}
-						onChange={(event) => wallet.setSendAmount(event.target.value)}
-					/>
-				</Field>
-				<Field label="Unit">
-					<Input
-						value={wallet.sendUnit}
-						onChange={(event) => wallet.setSendUnit(event.target.value)}
-					/>
-				</Field>
-				<Field label="Memo">
-					<Input
-						value={wallet.sendMemo}
-						onChange={(event) => wallet.setSendMemo(event.target.value)}
-					/>
-				</Field>
-				<div className="flex items-end">
-					<Button type="submit" disabled={wallet.busy !== null} className="w-full">
-						<Send />
-						Prepare
-					</Button>
-				</div>
+			<form onSubmit={wallet.handlePrepareSend}>
+				<FieldGroup className="grid gap-4 lg:grid-cols-[1fr_10rem_7rem_1fr_auto]">
+					<Field label="Mint">
+						<MintPicker
+							value={wallet.sendMintUrl}
+							mints={wallet.trustedMints}
+							onChange={wallet.setSendMintUrl}
+						/>
+					</Field>
+					<Field label="Amount">
+						<Input
+							inputMode="numeric"
+							value={wallet.sendAmount}
+							onChange={(event) => wallet.setSendAmount(event.target.value)}
+						/>
+					</Field>
+					<Field label="Unit">
+						<Input
+							value={wallet.sendUnit}
+							onChange={(event) => wallet.setSendUnit(event.target.value)}
+						/>
+					</Field>
+					<Field label="Memo">
+						<Input
+							value={wallet.sendMemo}
+							onChange={(event) => wallet.setSendMemo(event.target.value)}
+						/>
+					</Field>
+					<div className="flex items-end">
+						<Button type="submit" disabled={wallet.busy !== null} className="w-full">
+							<Send data-icon="inline-start" />
+							Prepare
+						</Button>
+					</div>
+				</FieldGroup>
 			</form>
 
 			<div className="grid gap-4 lg:grid-cols-2">
@@ -1316,7 +1361,7 @@ function SendEcashPanel() {
 								disabled={wallet.busy !== null}
 								onClick={() => wallet.handleExecuteSend(wallet.preparedSend!.id)}
 							>
-								<Send />
+								<Send data-icon="inline-start" />
 								Create token
 							</Button>
 							<Button
@@ -1326,7 +1371,7 @@ function SendEcashPanel() {
 								disabled={wallet.busy !== null}
 								onClick={() => wallet.handleCancelSend(wallet.preparedSend!.id)}
 							>
-								<X />
+								<X data-icon="inline-start" />
 								Cancel
 							</Button>
 						</div>
@@ -1346,7 +1391,7 @@ function SendLightningPanel() {
 	const wallet = useWallet();
 
 	return (
-		<div className="space-y-5">
+		<div className="flex flex-col gap-5">
 			<div className="grid gap-2 border-l-2 border-primary/50 pl-3">
 				<h3 className="text-sm font-semibold tracking-wider uppercase">
 					Lightning invoice
@@ -1355,8 +1400,8 @@ function SendLightningPanel() {
 					Use wallet proofs to pay an external Lightning request.
 				</p>
 			</div>
-			<form className="grid gap-4" onSubmit={wallet.handlePrepareMelt}>
-				<div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_8rem]">
+			<form className="flex flex-col gap-4" onSubmit={wallet.handlePrepareMelt}>
+				<FieldGroup className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_8rem]">
 					<Field label="Mint">
 						<MintPicker
 							value={wallet.meltMintUrl}
@@ -1377,10 +1422,10 @@ function SendLightningPanel() {
 							onChange={(event) => wallet.setMeltUnit(event.target.value)}
 						/>
 					</Field>
-				</div>
+				</FieldGroup>
 				<div className="flex justify-end">
 					<Button type="submit" disabled={wallet.busy !== null}>
-						<Zap />
+						<Zap data-icon="inline-start" />
 						Prepare payment
 					</Button>
 				</div>
@@ -1397,7 +1442,7 @@ function SendLightningPanel() {
 									disabled={wallet.busy !== null}
 									onClick={() => wallet.handleExecuteMelt(wallet.preparedMelt!.id)}
 								>
-									<Zap />
+									<Zap data-icon="inline-start" />
 									Pay invoice
 								</Button>
 								<Button
@@ -1407,7 +1452,7 @@ function SendLightningPanel() {
 									disabled={wallet.busy !== null}
 									onClick={() => wallet.handleCancelMelt(wallet.preparedMelt!.id)}
 								>
-									<X />
+									<X data-icon="inline-start" />
 									Cancel
 								</Button>
 							</>
@@ -1421,7 +1466,7 @@ function SendLightningPanel() {
 									wallet.handleRefreshMeltOperation(wallet.preparedMelt!.id)
 								}
 							>
-								<RefreshCw />
+								<RefreshCw data-icon="inline-start" />
 								Refresh
 							</Button>
 						)}
@@ -1453,11 +1498,11 @@ function ReceiveScreen() {
 					<Tabs defaultValue="ecash" className="gap-5">
 						<TabsList className="grid h-auto w-full grid-cols-2 sm:w-fit">
 							<TabsTrigger value="ecash" className="h-11">
-								<Check />
+								<Check data-icon="inline-start" />
 								Ecash
 							</TabsTrigger>
 							<TabsTrigger value="lightning" className="h-11">
-								<Download />
+								<Download data-icon="inline-start" />
 								Lightning
 							</TabsTrigger>
 						</TabsList>
@@ -1478,7 +1523,7 @@ function ReceiveEcashPanel() {
 	const wallet = useWallet();
 
 	return (
-		<div className="space-y-5">
+		<div className="flex flex-col gap-5">
 			<div className="grid gap-2 border-l-2 border-primary/50 pl-3">
 				<h3 className="text-sm font-semibold tracking-wider uppercase">
 					Ecash token
@@ -1487,23 +1532,22 @@ function ReceiveEcashPanel() {
 					Inspect a Cashu token before accepting its proofs.
 				</p>
 			</div>
-			<form
-				className="grid gap-4 lg:grid-cols-[1fr_auto]"
-				onSubmit={wallet.handlePrepareReceive}
-			>
-				<Field label="Token">
-					<Textarea
-						value={wallet.receiveToken}
-						onChange={(event) => wallet.setReceiveToken(event.target.value)}
-						className="min-h-40"
-					/>
-				</Field>
-				<div className="flex items-end">
-					<Button type="submit" disabled={wallet.busy !== null} className="w-full">
-						<Check />
-						Prepare
-					</Button>
-				</div>
+			<form onSubmit={wallet.handlePrepareReceive}>
+				<FieldGroup className="grid gap-4 lg:grid-cols-[1fr_auto]">
+					<Field label="Token">
+						<Textarea
+							value={wallet.receiveToken}
+							onChange={(event) => wallet.setReceiveToken(event.target.value)}
+							className="min-h-40"
+						/>
+					</Field>
+					<div className="flex items-end">
+						<Button type="submit" disabled={wallet.busy !== null} className="w-full">
+							<Check data-icon="inline-start" />
+							Prepare
+						</Button>
+					</div>
+				</FieldGroup>
 			</form>
 
 			{wallet.preparedReceive ? (
@@ -1515,7 +1559,7 @@ function ReceiveEcashPanel() {
 							disabled={wallet.busy !== null}
 							onClick={() => wallet.handleExecuteReceive(wallet.preparedReceive!.id)}
 						>
-							<Check />
+							<Check data-icon="inline-start" />
 							Accept
 						</Button>
 						<Button
@@ -1525,7 +1569,7 @@ function ReceiveEcashPanel() {
 							disabled={wallet.busy !== null}
 							onClick={() => wallet.handleCancelReceive(wallet.preparedReceive!.id)}
 						>
-							<X />
+							<X data-icon="inline-start" />
 							Cancel
 						</Button>
 					</div>
@@ -1541,7 +1585,7 @@ function ReceiveLightningPanel() {
 	const wallet = useWallet();
 
 	return (
-		<div className="space-y-5">
+		<div className="flex flex-col gap-5">
 			<div className="grid gap-2 border-l-2 border-primary/50 pl-3">
 				<h3 className="text-sm font-semibold tracking-wider uppercase">
 					Lightning invoice
@@ -1550,36 +1594,35 @@ function ReceiveLightningPanel() {
 					Create a payment request and settle it into ecash proofs.
 				</p>
 			</div>
-			<form
-				className="grid gap-4 lg:grid-cols-[1fr_12rem_8rem_auto]"
-				onSubmit={wallet.handleCreateMintQuote}
-			>
-				<Field label="Mint">
-					<MintPicker
-						value={wallet.quoteMintUrl}
-						mints={wallet.trustedMints}
-						onChange={wallet.setQuoteMintUrl}
-					/>
-				</Field>
-				<Field label="Amount">
-					<Input
-						inputMode="numeric"
-						value={wallet.quoteAmount}
-						onChange={(event) => wallet.setQuoteAmount(event.target.value)}
-					/>
-				</Field>
-				<Field label="Unit">
-					<Input
-						value={wallet.quoteUnit}
-						onChange={(event) => wallet.setQuoteUnit(event.target.value)}
-					/>
-				</Field>
-				<div className="flex items-end">
-					<Button type="submit" disabled={wallet.busy !== null} className="w-full">
-						<Download />
-						Create invoice
-					</Button>
-				</div>
+			<form onSubmit={wallet.handleCreateMintQuote}>
+				<FieldGroup className="grid gap-4 lg:grid-cols-[1fr_12rem_8rem_auto]">
+					<Field label="Mint">
+						<MintPicker
+							value={wallet.quoteMintUrl}
+							mints={wallet.trustedMints}
+							onChange={wallet.setQuoteMintUrl}
+						/>
+					</Field>
+					<Field label="Amount">
+						<Input
+							inputMode="numeric"
+							value={wallet.quoteAmount}
+							onChange={(event) => wallet.setQuoteAmount(event.target.value)}
+						/>
+					</Field>
+					<Field label="Unit">
+						<Input
+							value={wallet.quoteUnit}
+							onChange={(event) => wallet.setQuoteUnit(event.target.value)}
+						/>
+					</Field>
+					<div className="flex items-end">
+						<Button type="submit" disabled={wallet.busy !== null} className="w-full">
+							<Download data-icon="inline-start" />
+							Create invoice
+						</Button>
+					</div>
+				</FieldGroup>
 			</form>
 
 			<div className="grid gap-4 lg:grid-cols-2">
@@ -1605,7 +1648,7 @@ function ReceiveLightningPanel() {
 								wallet.handleRefreshMintOperation(wallet.lastMintOperation!.id)
 							}
 						>
-							<RefreshCw />
+							<RefreshCw data-icon="inline-start" />
 							Check settlement
 						</Button>
 					</OperationPreview>
@@ -1626,7 +1669,7 @@ function ActivityScreen() {
 				description="Active operations and settled wallet history."
 			/>
 			<div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-				<section className="min-w-0 space-y-3">
+				<section className="flex min-w-0 flex-col gap-3">
 					<SectionTitle
 						icon={Activity}
 						title="Operations"
@@ -1642,7 +1685,7 @@ function ActivityScreen() {
 					/>
 				</section>
 
-				<section className="min-w-0 space-y-3">
+				<section className="flex min-w-0 flex-col gap-3">
 					<SectionTitle icon={History} title="History" count={wallet.history.length} />
 					<HistoryList history={wallet.history} />
 				</section>
@@ -1694,18 +1737,20 @@ function MintManagementCard() {
 					</Badge>
 				</CardAction>
 			</CardHeader>
-			<CardContent className="space-y-4">
-				<form className="space-y-3" onSubmit={wallet.handleAddMint}>
-					<Field label="Mint URL">
-						<Input
-							value={wallet.mintUrl}
-							onChange={(event) => wallet.setMintUrl(event.target.value)}
-							placeholder="https://mint.example"
-						/>
-					</Field>
+			<CardContent className="flex flex-col gap-4">
+				<form className="flex flex-col gap-3" onSubmit={wallet.handleAddMint}>
+					<FieldGroup className="gap-3">
+						<Field label="Mint URL">
+							<Input
+								value={wallet.mintUrl}
+								onChange={(event) => wallet.setMintUrl(event.target.value)}
+								placeholder="https://mint.example"
+							/>
+						</Field>
+					</FieldGroup>
 					<div className="grid grid-cols-2 gap-2">
 						<Button type="submit" size="sm" disabled={wallet.busy !== null}>
-							<Plus />
+							<Plus data-icon="inline-start" />
 							Trust
 						</Button>
 						<Button
@@ -1715,7 +1760,7 @@ function MintManagementCard() {
 							disabled={wallet.busy !== null}
 							onClick={wallet.handlePreviewMint}
 						>
-							<Landmark />
+							<Landmark data-icon="inline-start" />
 							Preview
 						</Button>
 					</div>
@@ -1727,12 +1772,12 @@ function MintManagementCard() {
 						disabled={wallet.busy !== null}
 						onClick={wallet.handleRestoreMint}
 					>
-						<RotateCcw />
+						<RotateCcw data-icon="inline-start" />
 						Restore selected mint
 					</Button>
 				</form>
 
-				<div className="space-y-3">
+				<div className="flex flex-col gap-3">
 					{wallet.snapshot?.mints.length ? (
 						wallet.snapshot.mints.map((mint) => (
 							<div
@@ -1913,15 +1958,10 @@ function MintAllocationList({
 										{formatAmount(balance.spendable)} {balance.unit}
 									</span>
 									<span className="shrink-0 text-xs text-muted-foreground">
-										{percent}
+										{percent}%
 									</span>
 								</div>
-								<div className="mt-2 h-1.5 bg-muted">
-									<div
-										className="h-full bg-primary"
-										style={{ width: percent }}
-									/>
-								</div>
+								<Progress value={percent} className="mt-2" />
 								<div className="mt-1 text-xs text-muted-foreground">
 									{formatAmount(balance.reserved)} reserved
 								</div>
@@ -1964,12 +2004,12 @@ function Field({
 	const id = React.useId();
 
 	return (
-		<div className="grid min-w-0 gap-1.5">
-			<Label htmlFor={id}>{label}</Label>
+		<FieldRoot className="min-w-0">
+			<FieldLabel htmlFor={id}>{label}</FieldLabel>
 			{React.isValidElement(children)
 				? React.cloneElement(children, { id } as React.HTMLAttributes<HTMLElement>)
 				: children}
-		</div>
+		</FieldRoot>
 	);
 }
 
@@ -1977,14 +2017,17 @@ function MintPicker({
 	value,
 	mints,
 	onChange,
+	id,
 }: {
 	value: string;
 	mints: MintDto[];
 	onChange: (value: string) => void;
+	id?: string;
 }) {
 	if (!mints.length) {
 		return (
 			<Input
+				id={id}
 				value={value}
 				onChange={(event) => onChange(event.target.value)}
 				placeholder="https://mint.example"
@@ -1992,24 +2035,32 @@ function MintPicker({
 		);
 	}
 
+	const items = [
+		{ label: "Select mint", value: null },
+		...mints.map((mint) => ({ label: mint.name, value: mint.mintUrl })),
+	];
+
 	return (
 		<Select
-			value={value}
-			onValueChange={(nextValue) => {
-				if (nextValue !== null) {
+			items={items}
+			value={value || null}
+			onValueChange={(nextValue: string | null) => {
+				if (typeof nextValue === "string") {
 					onChange(nextValue);
 				}
 			}}
 		>
-			<SelectTrigger className="w-full">
-				<SelectValue placeholder="Select mint" />
+			<SelectTrigger id={id} className="w-full">
+				<SelectValue />
 			</SelectTrigger>
 			<SelectContent>
-				{mints.map((mint) => (
-					<SelectItem key={mint.mintUrl} value={mint.mintUrl}>
-						<span className="truncate">{mint.name}</span>
-					</SelectItem>
-				))}
+				<SelectGroup>
+					{items.map((item) => (
+						<SelectItem key={item.value ?? "placeholder"} value={item.value}>
+							<span className="truncate">{item.label}</span>
+						</SelectItem>
+					))}
+				</SelectGroup>
 			</SelectContent>
 		</Select>
 	);
@@ -2137,7 +2188,11 @@ function OperationList({
 										disabled={busy !== null}
 										onClick={() => onAction(operation)}
 									>
-										{operation.state === "prepared" ? <Check /> : <RefreshCw />}
+										{operation.state === "prepared" ? (
+											<Check data-icon="inline-start" />
+										) : (
+											<RefreshCw data-icon="inline-start" />
+										)}
 										{operation.state === "prepared" ? "Run" : "Refresh"}
 									</Button>
 								) : null}
@@ -2149,7 +2204,7 @@ function OperationList({
 										disabled={busy !== null}
 										onClick={() => onCancelSend(operation.id)}
 									>
-										<X />
+										<X data-icon="inline-start" />
 										Cancel
 									</Button>
 								) : null}
@@ -2161,7 +2216,7 @@ function OperationList({
 										disabled={busy !== null}
 										onClick={() => onCancelReceive(operation.id)}
 									>
-										<X />
+										<X data-icon="inline-start" />
 										Cancel
 									</Button>
 								) : null}
@@ -2173,7 +2228,7 @@ function OperationList({
 										disabled={busy !== null}
 										onClick={() => onCancelMelt(operation.id)}
 									>
-										<X />
+										<X data-icon="inline-start" />
 										Cancel
 									</Button>
 								) : null}
@@ -2242,7 +2297,7 @@ function CopyButton({
 			variant="outline"
 			onClick={() => void handleCopy()}
 		>
-			<Copy />
+			<Copy data-icon="inline-start" />
 			{copied ? "Copied" : "Copy"}
 		</Button>
 	);
@@ -2261,9 +2316,11 @@ function StatusAlert({ status }: { status: NonNullable<StatusState> }) {
 
 function EmptyState({ label }: { label: string }) {
 	return (
-		<div className="border border-dashed p-4 text-sm text-muted-foreground">
-			{label}
-		</div>
+		<Empty className="min-h-24 border p-4">
+			<EmptyHeader>
+				<EmptyTitle>{label}</EmptyTitle>
+			</EmptyHeader>
+		</Empty>
 	);
 }
 
@@ -2580,13 +2637,13 @@ function getBalancePercent(spendable: string, total: string) {
 		const spendableValue = BigInt(spendable);
 		const totalValue = BigInt(total);
 		if (totalValue <= 0n) {
-			return "0%";
+			return 0;
 		}
 
 		const percent = Number((spendableValue * 100n) / totalValue);
-		return `${Math.min(100, Math.max(0, percent))}%`;
+		return Math.min(100, Math.max(0, percent));
 	} catch {
-		return "0%";
+		return 0;
 	}
 }
 
