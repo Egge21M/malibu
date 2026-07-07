@@ -1993,7 +1993,14 @@ function MintPicker({
 	}
 
 	return (
-		<Select value={value} onValueChange={onChange}>
+		<Select
+			value={value}
+			onValueChange={(nextValue) => {
+				if (nextValue !== null) {
+					onChange(nextValue);
+				}
+			}}
+		>
 			<SelectTrigger className="w-full">
 				<SelectValue placeholder="Select mint" />
 			</SelectTrigger>
