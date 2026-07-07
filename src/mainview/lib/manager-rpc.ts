@@ -365,6 +365,18 @@ export type ManagerRpcRequests = {
 		params: ManagerOperationIdParams;
 		response: void;
 	};
+	managerMeltRecoveryRun: {
+		params: undefined;
+		response: void;
+	};
+	managerMeltRecoveryInProgress: {
+		params: undefined;
+		response: boolean;
+	};
+	managerMeltDiagnosticsIsLocked: {
+		params: ManagerOperationIdParams;
+		response: boolean;
+	};
 };
 
 export type ManagerRpcBunMessages = {

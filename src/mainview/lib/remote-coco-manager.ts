@@ -133,6 +133,11 @@ type RemoteManagerRpc = {
 			params: ManagerOperationIdWithReasonParams,
 		) => Promise<void>;
 		managerMeltFinalize: (params: ManagerOperationIdParams) => Promise<void>;
+		managerMeltRecoveryRun: () => Promise<void>;
+		managerMeltRecoveryInProgress: () => Promise<boolean>;
+		managerMeltDiagnosticsIsLocked: (
+			params: ManagerOperationIdParams,
+		) => Promise<boolean>;
 	};
 	send: {
 		managerEventSubscribe: (payload: ManagerEventSubscriptionDto) => void;
@@ -232,6 +237,20 @@ class RemoteCocoManager {
 
 	readonly ops = unsupportedAwareObject("Remote Coco manager ops API", {
 		melt: unsupportedAwareObject("Remote Coco manager melt operation API", {
+			recovery: unsupportedAwareObject("Remote Coco manager melt recovery API", {
+				run: () => this.rpc.request.managerMeltRecoveryRun(),
+				inProgress: () =>
+					this.rpc.request.managerMeltRecoveryInProgress(),
+			}),
+			diagnostics: unsupportedAwareObject(
+				"Remote Coco manager melt diagnostics API",
+				{
+					isLocked: (operationId: string) =>
+						this.rpc.request.managerMeltDiagnosticsIsLocked({
+							operationId,
+						}),
+				},
+			),
 			prepare: async (input: { quote: MeltQuote; feeIndex?: number }) =>
 				rehydrateMeltOperation(
 					await this.rpc.request.managerMeltPrepare({

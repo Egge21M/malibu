@@ -207,6 +207,11 @@ describe("manager RPC handlers", () => {
 			reason: "retry later",
 		});
 		await handlers.managerMeltFinalize({ operationId: "melt-1" });
+		await handlers.managerMeltRecoveryRun();
+		await expect(handlers.managerMeltRecoveryInProgress()).resolves.toBe(true);
+		await expect(
+			handlers.managerMeltDiagnosticsIsLocked({ operationId: "melt-1" }),
+		).resolves.toBe(true);
 
 		expect(calls).toEqual([
 			[
@@ -254,6 +259,9 @@ describe("manager RPC handlers", () => {
 			["melt.cancel", "melt-1", "user cancelled"],
 			["melt.reclaim", "melt-1", "retry later"],
 			["melt.finalize", "melt-1"],
+			["melt.recovery.run"],
+			["melt.recovery.inProgress"],
+			["melt.diagnostics.isLocked", "melt-1"],
 		]);
 	});
 
@@ -563,6 +571,21 @@ function createFakeManager(calls: unknown[]) {
 		},
 		ops: {
 			melt: {
+				recovery: {
+					run: async () => {
+						calls.push(["melt.recovery.run"]);
+					},
+					inProgress: () => {
+						calls.push(["melt.recovery.inProgress"]);
+						return true;
+					},
+				},
+				diagnostics: {
+					isLocked: (operationId: string) => {
+						calls.push(["melt.diagnostics.isLocked", operationId]);
+						return operationId === "melt-1";
+					},
+				},
 				prepare: async (params: unknown) => {
 					calls.push(["melt.prepare", params]);
 					return rawMeltOperation("melt-1", "prepared");
