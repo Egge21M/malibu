@@ -1032,7 +1032,7 @@ function AppSidebar() {
 							<div className="flex min-w-0 items-center gap-2">
 								<AtSign className="size-4 shrink-0 text-sidebar-primary" />
 								<span className="truncate text-sm font-semibold">
-									{wallet.npcState?.lightningAddress ?? "Not claimed"}
+									{wallet.npcState?.lightningAddress ?? "Loading"}
 								</span>
 							</div>
 							<div className="flex items-center justify-between gap-2">
@@ -1102,6 +1102,7 @@ function OverviewScreen() {
 	const primaryTotal = wallet.totals[0] ?? ZERO_TOTAL;
 	const otherTotals = wallet.totals.slice(1);
 	const walletConnected = wallet.snapshot !== null && wallet.status?.kind !== "error";
+	const usernameClaimed = wallet.npcState?.username !== null && wallet.npcState?.username !== undefined;
 	const walletState = !walletConnected
 		? {
 				label: "Connecting",
@@ -1244,8 +1245,8 @@ function OverviewScreen() {
 							<ReadinessRow
 								icon={AtSign}
 								label="Lightning address"
-								value={wallet.npcState?.lightningAddress ? "Claimed" : "Open"}
-								state={wallet.npcState?.lightningAddress ? "ok" : "warn"}
+								value={usernameClaimed ? "Username" : "NPub"}
+								state={wallet.npcState?.lightningAddress ? "ok" : "muted"}
 							/>
 							<ReadinessRow
 								icon={Landmark}
@@ -1826,8 +1827,9 @@ function SettingsScreen() {
 function LightningAddressCard() {
 	const wallet = useWallet();
 	const address = wallet.npcState?.lightningAddress;
-	const addressLabel = address ?? "No username claimed";
+	const addressLabel = address ?? "Loading address";
 	const syncBusy = wallet.busy === "syncNpc";
+	const usernameClaimed = wallet.npcState?.username !== null && wallet.npcState?.username !== undefined;
 
 	return (
 		<Card>
@@ -1839,7 +1841,7 @@ function LightningAddressCard() {
 				<CardDescription>{getNpcHost(wallet.npcState)}</CardDescription>
 				<CardAction>
 					<Badge variant={address ? "default" : "secondary"}>
-						{address ? "active" : "available"}
+						{usernameClaimed ? "username" : "npub"}
 					</Badge>
 				</CardAction>
 			</CardHeader>
@@ -1874,11 +1876,11 @@ function LightningAddressCard() {
 					<Button
 						render={<NavLink to="/settings" />}
 						nativeButton={false}
-						variant={address ? "ghost" : "default"}
+						variant={usernameClaimed ? "ghost" : "default"}
 						size="sm"
 					>
 						<UserRound data-icon="inline-start" />
-						{address ? "Manage" : "Claim username"}
+						{usernameClaimed ? "Manage" : "Claim username"}
 					</Button>
 				</div>
 			</CardContent>
@@ -1891,6 +1893,7 @@ function NpcUsernameCard() {
 	const paymentRequest = wallet.lastNpcUsernameResult?.success === false
 		? wallet.lastNpcUsernameResult.paymentRequest
 		: null;
+	const usernameClaimed = wallet.npcState?.username !== null && wallet.npcState?.username !== undefined;
 
 	return (
 		<Card size="sm">
@@ -1903,8 +1906,8 @@ function NpcUsernameCard() {
 					{wallet.npcState?.lightningAddress ?? getNpcHost(wallet.npcState)}
 				</CardDescription>
 				<CardAction>
-					<Badge variant={wallet.npcState?.lightningAddress ? "default" : "secondary"}>
-						{wallet.npcState?.lightningAddress ? "claimed" : "unclaimed"}
+					<Badge variant={usernameClaimed ? "default" : "secondary"}>
+						{usernameClaimed ? "claimed" : "npub fallback"}
 					</Badge>
 				</CardAction>
 			</CardHeader>

@@ -11,6 +11,7 @@ import {
 	type NPCAccountStore,
 	type SinceStore,
 } from "coco-cashu-plugin-npc";
+import { npubEncode } from "nostr-tools/nip19";
 import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -62,6 +63,7 @@ export class CashuWalletService {
 			.find((entry) => entry.id === DEFAULT_NPC_ACCOUNT_ID);
 		const baseUrl = accountSummary?.baseUrl ?? getNpcBaseUrl();
 		const publicKey = getPublicKey(await this.getNpcSecret());
+		const fallbackLightningAddress = getNpcLightningAddress(null, publicKey, baseUrl);
 
 		if (!account) {
 			return {
@@ -69,7 +71,7 @@ export class CashuWalletService {
 				accountId: DEFAULT_NPC_ACCOUNT_ID,
 				baseUrl,
 				publicKey,
-				lightningAddress: null,
+				lightningAddress: fallbackLightningAddress,
 				username: null,
 				user: null,
 				status: pluginStatus,
@@ -86,9 +88,7 @@ export class CashuWalletService {
 				accountId: DEFAULT_NPC_ACCOUNT_ID,
 				baseUrl,
 				publicKey,
-				lightningAddress: username
-					? `${username}@${new URL(baseUrl).host}`
-					: null,
+				lightningAddress: getNpcLightningAddress(username, publicKey, baseUrl),
 				username,
 				user: {
 					pubkey: user.pubkey,
@@ -105,7 +105,7 @@ export class CashuWalletService {
 				accountId: DEFAULT_NPC_ACCOUNT_ID,
 				baseUrl,
 				publicKey,
-				lightningAddress: null,
+				lightningAddress: fallbackLightningAddress,
 				username: null,
 				user: null,
 				status: pluginStatus,
@@ -419,6 +419,23 @@ async function deriveNpcSecret(seed: Uint8Array): Promise<Uint8Array> {
 function getNpcUsername(user: { name?: string | null }) {
 	const username = user.name?.trim();
 	return username || null;
+}
+
+function getNpcLightningAddress(
+	username: string | null,
+	publicKey: string,
+	baseUrl: string,
+) {
+	const localPart = username ?? npubEncode(publicKey);
+	return `${localPart}@${getNpcHost(baseUrl)}`;
+}
+
+function getNpcHost(baseUrl: string) {
+	try {
+		return new URL(baseUrl).host;
+	} catch {
+		return baseUrl;
+	}
 }
 
 function serializeNpcPaymentRequest(input: unknown): NpcPaymentRequestDto {
