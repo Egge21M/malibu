@@ -174,20 +174,14 @@ describe("createRemoteCocoManager", () => {
 		).toBe("function");
 	});
 
-	it("supports history consumers refreshing from history:updated events", async () => {
+	it("supports a hook-equivalent history consumer refreshing from history:updated events", async () => {
 		const fake = createFakeRpc();
 		const manager = createRemoteCocoManager(
 			fake.rpc,
 		) as unknown as RemoteHistoryManagerSurface;
-		const loads: HistoryEntry[][] = [];
-		const loadHistory = async () => {
-			loads.push(await manager.history.getPaginatedHistory(0, 24));
-		};
+		const history = createPaginatedHistoryConsumer(manager, 24);
 
-		await loadHistory();
-		const unsubscribe = manager.on("history:updated", () => {
-			void loadHistory();
-		});
+		await history.mount();
 		fake.emit({
 			event: "history:updated",
 			payload: {
@@ -196,7 +190,7 @@ describe("createRemoteCocoManager", () => {
 			},
 		});
 		await Promise.resolve();
-		unsubscribe();
+		history.unmount();
 		fake.emit({
 			event: "history:updated",
 			payload: {
@@ -206,7 +200,9 @@ describe("createRemoteCocoManager", () => {
 		});
 		await Promise.resolve();
 
-		expect(loads).toHaveLength(2);
+		expect(history.loads).toHaveLength(2);
+		expect(history.current).toHaveLength(1);
+		expect(history.current[0]?.amount.toString()).toBe("42");
 		expect(fake.calls).toEqual([
 			["managerHistoryGetPaginatedHistory", { offset: 0, limit: 24 }],
 			["addMessageListener", "managerEvent"],
@@ -319,6 +315,36 @@ function mint(mintUrl: string) {
 		trusted: true,
 		createdAt: 1,
 		updatedAt: 2,
+	};
+}
+
+function createPaginatedHistoryConsumer(
+	manager: RemoteHistoryManagerSurface,
+	pageSize: number,
+) {
+	const loads: HistoryEntry[][] = [];
+	let current: HistoryEntry[] = [];
+	let unsubscribe: (() => void) | undefined;
+	const refresh = async () => {
+		current = await manager.history.getPaginatedHistory(0, pageSize);
+		loads.push(current);
+	};
+
+	return {
+		get current() {
+			return current;
+		},
+		loads,
+		async mount() {
+			await refresh();
+			unsubscribe = manager.on("history:updated", () => {
+				void refresh();
+			});
+		},
+		unmount() {
+			unsubscribe?.();
+			unsubscribe = undefined;
+		},
 	};
 }
 
