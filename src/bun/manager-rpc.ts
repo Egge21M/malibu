@@ -5,6 +5,7 @@ import type {
 	ManagerBalancesByMintAndUnitDto,
 	ManagerBalancesByMintDto,
 	ManagerBalancesByUnitDto,
+	ManagerCancelOperationParams,
 	ManagerEventDto,
 	ManagerEventName,
 	ManagerEventPayloads,
@@ -15,7 +16,10 @@ import type {
 	ManagerEventSubscriptionDto,
 	ManagerMintUrlParams,
 	ManagerMintWithKeysetsDto,
+	ManagerOperationIdParams,
+	ManagerPrepareReceiveParams,
 	ManagerProofDto,
+	ManagerReceiveOperationDto,
 } from "../mainview/lib/manager-rpc.ts";
 
 type ManagerMintLike = {
@@ -90,12 +94,36 @@ type ManagerHistoryApiLike = {
 	) => Promise<ManagerHistoryEntryLike[]>;
 };
 
+type ManagerReceiveOperationLike = Omit<
+	ManagerReceiveOperationDto,
+	"amount" | "fee" | "state"
+> & {
+	amount: unknown;
+	fee?: unknown;
+	state: string;
+};
+
+type ManagerReceiveOpsApiLike = {
+	prepare: (
+		params: ManagerPrepareReceiveParams,
+	) => Promise<ManagerReceiveOperationLike>;
+	execute: (operationId: string) => Promise<ManagerReceiveOperationLike>;
+	get: (operationId: string) => Promise<ManagerReceiveOperationLike | null>;
+	refresh: (operationId: string) => Promise<ManagerReceiveOperationLike>;
+	cancel: (operationId: string, reason?: string) => Promise<void>;
+	listPrepared: () => Promise<ManagerReceiveOperationLike[]>;
+	listInFlight: () => Promise<ManagerReceiveOperationLike[]>;
+};
+
 export type ManagerRpcManagerLike = {
 	mint: ManagerMintApiLike;
 	wallet: {
 		balances: ManagerWalletBalancesApiLike;
 	};
 	history: ManagerHistoryApiLike;
+	ops: {
+		receive: ManagerReceiveOpsApiLike;
+	};
 	on: <TEventName extends ManagerEventName>(
 		event: TEventName,
 		handler: (payload: unknown) => void,
@@ -128,6 +156,21 @@ type ManagerRpcRequestHandlers = {
 	managerHistoryGetPaginatedHistory: (
 		params: ManagerHistoryPaginationParams,
 	) => Promise<ManagerHistoryEntryDto[]>;
+	managerReceivePrepare: (
+		params: ManagerPrepareReceiveParams,
+	) => Promise<ManagerReceiveOperationDto>;
+	managerReceiveExecute: (
+		params: ManagerOperationIdParams,
+	) => Promise<ManagerReceiveOperationDto>;
+	managerReceiveGet: (
+		params: ManagerOperationIdParams,
+	) => Promise<ManagerReceiveOperationDto | null>;
+	managerReceiveRefresh: (
+		params: ManagerOperationIdParams,
+	) => Promise<ManagerReceiveOperationDto>;
+	managerReceiveCancel: (params: ManagerCancelOperationParams) => Promise<void>;
+	managerReceiveListPrepared: () => Promise<ManagerReceiveOperationDto[]>;
+	managerReceiveListInFlight: () => Promise<ManagerReceiveOperationDto[]>;
 };
 
 export function createManagerRpcRequestHandlers(
@@ -191,6 +234,45 @@ export function createManagerRpcRequestHandlers(
 			const manager = await getManager();
 			const entries = await manager.history.getPaginatedHistory(offset, limit);
 			return entries.map(serializeHistoryEntry);
+		},
+		managerReceivePrepare: async (params) => {
+			const manager = await getManager();
+			return serializeReceiveOperation(
+				await manager.ops.receive.prepare(params),
+			);
+		},
+		managerReceiveExecute: async ({ operationId }) => {
+			const manager = await getManager();
+			return serializeReceiveOperation(
+				await manager.ops.receive.execute(operationId),
+			);
+		},
+		managerReceiveGet: async ({ operationId }) => {
+			const manager = await getManager();
+			const operation = await manager.ops.receive.get(operationId);
+			return operation ? serializeReceiveOperation(operation) : null;
+		},
+		managerReceiveRefresh: async ({ operationId }) => {
+			const manager = await getManager();
+			return serializeReceiveOperation(
+				await manager.ops.receive.refresh(operationId),
+			);
+		},
+		managerReceiveCancel: async ({ operationId, reason }) => {
+			const manager = await getManager();
+			await manager.ops.receive.cancel(operationId, reason);
+		},
+		managerReceiveListPrepared: async () => {
+			const manager = await getManager();
+			return (await manager.ops.receive.listPrepared()).map(
+				serializeReceiveOperation,
+			);
+		},
+		managerReceiveListInFlight: async () => {
+			const manager = await getManager();
+			return (await manager.ops.receive.listInFlight()).map(
+				serializeReceiveOperation,
+			);
 		},
 	};
 }
@@ -296,6 +378,26 @@ function serializeManagerEvent<TEventName extends ManagerEventName>(
 			payload: {
 				mintUrl: historyPayload.mintUrl,
 				entry: serializeHistoryEntry(historyPayload.entry),
+			},
+		} as ManagerEventDto<TEventName>;
+	}
+
+	if (
+		event === "receive-op:prepared" ||
+		event === "receive-op:finalized" ||
+		event === "receive-op:rolled-back"
+	) {
+		const receivePayload = payload as {
+			mintUrl: string;
+			operationId: string;
+			operation: ManagerReceiveOperationLike;
+		};
+		return {
+			event,
+			payload: {
+				mintUrl: receivePayload.mintUrl,
+				operationId: receivePayload.operationId,
+				operation: serializeReceiveOperation(receivePayload.operation),
 			},
 		} as ManagerEventDto<TEventName>;
 	}
@@ -424,6 +526,26 @@ function serializeHistoryEntry(entry: ManagerHistoryEntryLike): ManagerHistoryEn
 		quoteId: entry.quoteId,
 		remoteState: entry.remoteState,
 		token: entry.token,
+	};
+}
+
+function serializeReceiveOperation(
+	operation: ManagerReceiveOperationLike,
+): ManagerReceiveOperationDto {
+	return {
+		id: operation.id,
+		mintUrl: operation.mintUrl,
+		unit: operation.unit,
+		amount: serializeAmount(operation.amount),
+		inputProofs: operation.inputProofs,
+		createdAt: operation.createdAt,
+		updatedAt: operation.updatedAt,
+		state: operation.state as ManagerReceiveOperationDto["state"],
+		error: operation.error,
+		source: operation.source,
+		fee:
+			operation.fee === undefined ? undefined : serializeAmount(operation.fee),
+		outputData: operation.outputData,
 	};
 }
 

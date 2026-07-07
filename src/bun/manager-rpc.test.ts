@@ -7,6 +7,7 @@ import {
 import type {
 	ManagerEventName,
 	ManagerHistoryEntryDto,
+	ManagerReceiveOperationDto,
 } from "../mainview/lib/manager-rpc.ts";
 
 describe("manager RPC handlers", () => {
@@ -80,6 +81,28 @@ describe("manager RPC handlers", () => {
 		await expect(
 			handlers.managerHistoryGetPaginatedHistory({ offset: 10, limit: 5 }),
 		).resolves.toEqual([serializedHistoryEntry("history-1", "123")]);
+		await expect(
+			handlers.managerReceivePrepare({ token: "cashu-token" }),
+		).resolves.toEqual(serializedReceiveOperation("receive-1", "prepared"));
+		await expect(
+			handlers.managerReceiveExecute({ operationId: "receive-1" }),
+		).resolves.toEqual(serializedReceiveOperation("receive-1", "finalized"));
+		await expect(
+			handlers.managerReceiveGet({ operationId: "receive-1" }),
+		).resolves.toEqual(serializedReceiveOperation("receive-1", "prepared"));
+		await expect(
+			handlers.managerReceiveRefresh({ operationId: "receive-1" }),
+		).resolves.toEqual(serializedReceiveOperation("receive-1", "executing"));
+		await handlers.managerReceiveCancel({
+			operationId: "receive-1",
+			reason: "user cancelled",
+		});
+		await expect(handlers.managerReceiveListPrepared()).resolves.toEqual([
+			serializedReceiveOperation("receive-1", "prepared"),
+		]);
+		await expect(handlers.managerReceiveListInFlight()).resolves.toEqual([
+			serializedReceiveOperation("receive-2", "executing"),
+		]);
 
 		expect(calls).toEqual([
 			["getAllMints"],
@@ -128,6 +151,13 @@ describe("manager RPC handlers", () => {
 				},
 			],
 			["getPaginatedHistory", 10, 5],
+			["receive.prepare", { token: "cashu-token" }],
+			["receive.execute", "receive-1"],
+			["receive.get", "receive-1"],
+			["receive.refresh", "receive-1"],
+			["receive.cancel", "receive-1", "user cancelled"],
+			["receive.listPrepared"],
+			["receive.listInFlight"],
 		]);
 	});
 
@@ -246,6 +276,41 @@ describe("manager RPC handlers", () => {
 		]);
 	});
 
+	it("forwards subscribed receive lifecycle events with serialized operations", async () => {
+		const calls: unknown[] = [];
+		const emitted: unknown[] = [];
+		const manager = createFakeManager(calls);
+		const forwarder = createManagerEventForwarder(
+			async () => manager,
+			(event) => emitted.push(event),
+		);
+
+		forwarder.subscribe({ event: "receive-op:finalized" });
+		await Promise.resolve();
+
+		manager.emit("receive-op:finalized", {
+			mintUrl: "https://mint.example",
+			operationId: "receive-1",
+			operation: rawReceiveOperation("receive-1", "finalized"),
+		});
+		forwarder.unsubscribe({ event: "receive-op:finalized" });
+
+		expect(emitted).toEqual([
+			{
+				event: "receive-op:finalized",
+				payload: {
+					mintUrl: "https://mint.example",
+					operationId: "receive-1",
+					operation: serializedReceiveOperation("receive-1", "finalized"),
+				},
+			},
+		]);
+		expect(calls).toEqual([
+			["on", "receive-op:finalized"],
+			["off", "receive-op:finalized"],
+		]);
+	});
+
 	it("keeps one manager event subscription for multiple renderer listeners", async () => {
 		const calls: unknown[] = [];
 		const emitted: unknown[] = [];
@@ -340,6 +405,37 @@ function createFakeManager(calls: unknown[]) {
 			getPaginatedHistory: async (offset?: number, limit?: number) => {
 				calls.push(["getPaginatedHistory", offset, limit]);
 				return [rawHistoryEntry("history-1", 123n)];
+			},
+		},
+		ops: {
+			receive: {
+				prepare: async (params: { token: string }) => {
+					calls.push(["receive.prepare", params]);
+					return rawReceiveOperation("receive-1", "prepared");
+				},
+				execute: async (operationId: string) => {
+					calls.push(["receive.execute", operationId]);
+					return rawReceiveOperation(operationId, "finalized");
+				},
+				get: async (operationId: string) => {
+					calls.push(["receive.get", operationId]);
+					return rawReceiveOperation(operationId, "prepared");
+				},
+				refresh: async (operationId: string) => {
+					calls.push(["receive.refresh", operationId]);
+					return rawReceiveOperation(operationId, "executing");
+				},
+				cancel: async (operationId: string, reason?: string) => {
+					calls.push(["receive.cancel", operationId, reason]);
+				},
+				listPrepared: async () => {
+					calls.push(["receive.listPrepared"]);
+					return [rawReceiveOperation("receive-1", "prepared")];
+				},
+				listInFlight: async () => {
+					calls.push(["receive.listInFlight"]);
+					return [rawReceiveOperation("receive-2", "executing")];
+				},
 			},
 		},
 		on<TEventName extends ManagerEventName>(
@@ -476,6 +572,56 @@ function serializedHistoryEntry(
 		token: { token: [{ mint: "https://mint.example", proofs: [] }] },
 		createdAt: 10,
 		updatedAt: 11,
+	};
+}
+
+function rawReceiveOperation(id: string, state: string) {
+	return {
+		id,
+		mintUrl: "https://mint.example",
+		unit: "sat",
+		amount: amountLike("21"),
+		inputProofs: [
+			{
+				id: "proof-1",
+				amount: 21,
+				secret: "secret-1",
+				C: "C-1",
+			},
+		],
+		createdAt: 20,
+		updatedAt: 30,
+		state,
+		fee: amountLike("1"),
+		outputData: { keep: [{ amount: 20 }] },
+		source: { type: "manual-token" as const },
+	};
+}
+
+function serializedReceiveOperation(
+	id: string,
+	state: ManagerReceiveOperationDto["state"],
+): ManagerReceiveOperationDto {
+	return {
+		id,
+		mintUrl: "https://mint.example",
+		unit: "sat",
+		amount: "21",
+		inputProofs: [
+			{
+				id: "proof-1",
+				amount: 21,
+				secret: "secret-1",
+				C: "C-1",
+			},
+		],
+		createdAt: 20,
+		updatedAt: 30,
+		state,
+		error: undefined,
+		source: { type: "manual-token" },
+		fee: "1",
+		outputData: { keep: [{ amount: 20 }] },
 	};
 }
 

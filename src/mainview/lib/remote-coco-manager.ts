@@ -1,4 +1,9 @@
-import { Amount, type HistoryEntry, type Manager } from "@cashu/coco-core";
+import {
+	Amount,
+	type HistoryEntry,
+	type Manager,
+	type ReceiveOperation,
+} from "@cashu/coco-core";
 import type {
 	ManagerAddMintParams,
 	ManagerBalanceScopeDto,
@@ -6,6 +11,7 @@ import type {
 	ManagerBalancesByMintAndUnitDto,
 	ManagerBalancesByMintDto,
 	ManagerBalancesByUnitDto,
+	ManagerCancelOperationParams,
 	ManagerEventDto,
 	ManagerEventName,
 	ManagerEventPayloads,
@@ -15,15 +21,36 @@ import type {
 	ManagerEventSubscriptionDto,
 	ManagerMintUrlParams,
 	ManagerMintWithKeysetsDto,
+	ManagerOperationIdParams,
+	ManagerPrepareReceiveParams,
+	ManagerReceiveOperationDto,
 } from "@/lib/manager-rpc";
 
 type RemoteManagerEventPayloads = Omit<
 	ManagerEventPayloads,
-	"history:updated"
+	| "history:updated"
+	| "receive-op:prepared"
+	| "receive-op:finalized"
+	| "receive-op:rolled-back"
 > & {
 	"history:updated": {
 		mintUrl: string;
 		entry: HistoryEntry;
+	};
+	"receive-op:prepared": {
+		mintUrl: string;
+		operationId: string;
+		operation: ReceiveOperation;
+	};
+	"receive-op:finalized": {
+		mintUrl: string;
+		operationId: string;
+		operation: ReceiveOperation;
+	};
+	"receive-op:rolled-back": {
+		mintUrl: string;
+		operationId: string;
+		operation: ReceiveOperation;
 	};
 };
 
@@ -58,6 +85,21 @@ type RemoteManagerRpc = {
 		managerHistoryGetPaginatedHistory: (
 			params: ManagerHistoryPaginationParams,
 		) => Promise<ManagerHistoryEntryDto[]>;
+		managerReceivePrepare: (
+			params: ManagerPrepareReceiveParams,
+		) => Promise<ManagerReceiveOperationDto>;
+		managerReceiveExecute: (
+			params: ManagerOperationIdParams,
+		) => Promise<ManagerReceiveOperationDto>;
+		managerReceiveGet: (
+			params: ManagerOperationIdParams,
+		) => Promise<ManagerReceiveOperationDto | null>;
+		managerReceiveRefresh: (
+			params: ManagerOperationIdParams,
+		) => Promise<ManagerReceiveOperationDto>;
+		managerReceiveCancel: (params: ManagerCancelOperationParams) => Promise<void>;
+		managerReceiveListPrepared: () => Promise<ManagerReceiveOperationDto[]>;
+		managerReceiveListInFlight: () => Promise<ManagerReceiveOperationDto[]>;
 	};
 	send: {
 		managerEventSubscribe: (payload: ManagerEventSubscriptionDto) => void;
@@ -126,6 +168,41 @@ class RemoteCocoManager {
 				});
 			return entries.map(rehydrateHistoryEntry);
 		},
+	});
+
+	readonly ops = unsupportedAwareObject("Remote Coco manager ops API", {
+		receive: unsupportedAwareObject("Remote Coco manager receive ops API", {
+			prepare: async (params: ManagerPrepareReceiveParams) =>
+				rehydrateReceiveOperation(
+					await this.rpc.request.managerReceivePrepare(params),
+				),
+			execute: async (operationOrId: ReceiveOperation | string) =>
+				rehydrateReceiveOperation(
+					await this.rpc.request.managerReceiveExecute({
+						operationId: operationIdFrom(operationOrId),
+					}),
+				),
+			get: async (operationId: string) => {
+				const operation = await this.rpc.request.managerReceiveGet({
+					operationId,
+				});
+				return operation ? rehydrateReceiveOperation(operation) : null;
+			},
+			refresh: async (operationId: string) =>
+				rehydrateReceiveOperation(
+					await this.rpc.request.managerReceiveRefresh({ operationId }),
+				),
+			cancel: (operationId: string, reason?: string) =>
+				this.rpc.request.managerReceiveCancel({ operationId, reason }),
+			listPrepared: async () =>
+				(await this.rpc.request.managerReceiveListPrepared()).map(
+					rehydrateReceiveOperation,
+				),
+			listInFlight: async () =>
+				(await this.rpc.request.managerReceiveListInFlight()).map(
+					rehydrateReceiveOperation,
+				),
+		}),
 	});
 
 	constructor(private readonly rpc: RemoteManagerRpc) {}
@@ -197,7 +274,7 @@ class RemoteCocoManager {
 
 export function createRemoteCocoManager(rpc: RemoteManagerRpc): Manager {
 	return unsupportedAwareObject("Remote Coco manager", new RemoteCocoManager(rpc), {
-		allowProperties: new Set(["mint", "wallet", "history", "on", "off"]),
+		allowProperties: new Set(["mint", "wallet", "history", "ops", "on", "off"]),
 	}) as unknown as Manager;
 }
 
@@ -272,6 +349,17 @@ function rehydrateManagerEventPayload(event: ManagerEventDto) {
 		};
 	}
 
+	if (
+		event.event === "receive-op:prepared" ||
+		event.event === "receive-op:finalized" ||
+		event.event === "receive-op:rolled-back"
+	) {
+		return {
+			...event.payload,
+			operation: rehydrateReceiveOperation(event.payload.operation),
+		};
+	}
+
 	return event.payload;
 }
 
@@ -280,6 +368,24 @@ function rehydrateHistoryEntry(entry: ManagerHistoryEntryDto): HistoryEntry {
 		...entry,
 		amount: Amount.from(entry.amount),
 	} as HistoryEntry;
+}
+
+function rehydrateReceiveOperation(
+	operation: ManagerReceiveOperationDto,
+): ReceiveOperation {
+	return {
+		...operation,
+		amount: Amount.from(operation.amount),
+		...(operation.fee === undefined ? {} : { fee: Amount.from(operation.fee) }),
+	} as ReceiveOperation;
+}
+
+function operationIdFrom(operationOrId: ReceiveOperation | string): string {
+	if (typeof operationOrId === "string") {
+		return operationOrId;
+	}
+
+	return operationOrId.id;
 }
 
 function unsupportedAwareObject<TTarget extends object>(

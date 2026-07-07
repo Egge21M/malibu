@@ -33,10 +33,16 @@ export type ManagerHistoryType = "mint" | "melt" | "send" | "receive";
 
 export type ManagerHistoryEventName = "history:updated";
 
+export type ManagerReceiveOperationEventName =
+	| "receive-op:prepared"
+	| "receive-op:finalized"
+	| "receive-op:rolled-back";
+
 export type ManagerEventName =
 	| ManagerMintEventName
 	| ManagerBalanceRefreshEventName
-	| ManagerHistoryEventName;
+	| ManagerHistoryEventName
+	| ManagerReceiveOperationEventName;
 
 export type ManagerMintWithKeysetsDto = {
 	mint: ManagerMintDto;
@@ -97,6 +103,43 @@ export type ManagerHistoryEntryDto = {
 	token?: unknown;
 };
 
+export type ManagerReceiveOperationStateDto =
+	| "init"
+	| "prepared"
+	| "executing"
+	| "finalized"
+	| "rolled_back";
+
+export type ManagerReceiveOperationSourceDto =
+	| {
+			type: "manual-token";
+	  }
+	| {
+			type: "payment-request";
+			requestOperationId: string;
+			requestId?: string;
+			attemptId: string;
+			transport: "inband" | "nostr" | "post";
+			transportMessageId?: string;
+			senderPubkey?: string;
+			memo?: string;
+	  };
+
+export type ManagerReceiveOperationDto = {
+	id: string;
+	mintUrl: string;
+	unit: string;
+	amount: string;
+	inputProofs: unknown[];
+	createdAt: number;
+	updatedAt: number;
+	state: ManagerReceiveOperationStateDto;
+	error?: string;
+	source?: ManagerReceiveOperationSourceDto;
+	fee?: string;
+	outputData?: unknown;
+};
+
 export type ManagerEventPayloads = {
 	"mint:added": ManagerMintWithKeysetsDto;
 	"mint:updated": ManagerMintWithKeysetsDto;
@@ -125,6 +168,21 @@ export type ManagerEventPayloads = {
 	"history:updated": {
 		mintUrl: string;
 		entry: ManagerHistoryEntryDto;
+	};
+	"receive-op:prepared": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerReceiveOperationDto;
+	};
+	"receive-op:finalized": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerReceiveOperationDto;
+	};
+	"receive-op:rolled-back": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerReceiveOperationDto;
 	};
 };
 
@@ -155,6 +213,18 @@ export type ManagerMintUrlParams = {
 export type ManagerHistoryPaginationParams = {
 	offset?: number;
 	limit?: number;
+};
+
+export type ManagerPrepareReceiveParams = {
+	token: string;
+};
+
+export type ManagerOperationIdParams = {
+	operationId: string;
+};
+
+export type ManagerCancelOperationParams = ManagerOperationIdParams & {
+	reason?: string;
 };
 
 export type ManagerRpcRequests = {
@@ -201,6 +271,34 @@ export type ManagerRpcRequests = {
 	managerHistoryGetPaginatedHistory: {
 		params: ManagerHistoryPaginationParams;
 		response: ManagerHistoryEntryDto[];
+	};
+	managerReceivePrepare: {
+		params: ManagerPrepareReceiveParams;
+		response: ManagerReceiveOperationDto;
+	};
+	managerReceiveExecute: {
+		params: ManagerOperationIdParams;
+		response: ManagerReceiveOperationDto;
+	};
+	managerReceiveGet: {
+		params: ManagerOperationIdParams;
+		response: ManagerReceiveOperationDto | null;
+	};
+	managerReceiveRefresh: {
+		params: ManagerOperationIdParams;
+		response: ManagerReceiveOperationDto;
+	};
+	managerReceiveCancel: {
+		params: ManagerCancelOperationParams;
+		response: void;
+	};
+	managerReceiveListPrepared: {
+		params: undefined;
+		response: ManagerReceiveOperationDto[];
+	};
+	managerReceiveListInFlight: {
+		params: undefined;
+		response: ManagerReceiveOperationDto[];
 	};
 };
 

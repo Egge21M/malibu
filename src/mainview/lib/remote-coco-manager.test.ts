@@ -9,6 +9,7 @@ import type {
 	ManagerHistoryEntryDto,
 	ManagerMintDto,
 	ManagerMintWithKeysetsDto,
+	ManagerReceiveOperationDto,
 } from "@/lib/manager-rpc";
 import { createRemoteCocoManager } from "@/lib/remote-coco-manager";
 
@@ -42,6 +43,19 @@ type RemoteMintManagerSurface = {
 			limit?: number,
 		) => Promise<HistoryEntry[]>;
 	};
+	ops: {
+		receive: {
+			prepare: (params: { token: string }) => Promise<ReceiveOperationLike>;
+			execute: (
+				operationOrId: ReceiveOperationLike | string,
+			) => Promise<ReceiveOperationLike>;
+			get: (operationId: string) => Promise<ReceiveOperationLike | null>;
+			refresh: (operationId: string) => Promise<ReceiveOperationLike>;
+			cancel: (operationId: string, reason?: string) => Promise<void>;
+			listPrepared: () => Promise<ReceiveOperationLike[]>;
+			listInFlight: () => Promise<ReceiveOperationLike[]>;
+		};
+	};
 	on: {
 		(
 			event: "mint:added" | "mint:updated",
@@ -54,6 +68,13 @@ type RemoteMintManagerSurface = {
 		(
 			event: "history:updated",
 			handler: (payload: { mintUrl: string; entry: HistoryEntry }) => void,
+		): () => void;
+		(
+			event:
+				| "receive-op:prepared"
+				| "receive-op:finalized"
+				| "receive-op:rolled-back",
+			handler: (payload: ReceiveOperationEvent) => void,
 		): () => void;
 	};
 	off: {
@@ -68,6 +89,13 @@ type RemoteMintManagerSurface = {
 		(
 			event: "history:updated",
 			handler: (payload: { mintUrl: string; entry: HistoryEntry }) => void,
+		): void;
+		(
+			event:
+				| "receive-op:prepared"
+				| "receive-op:finalized"
+				| "receive-op:rolled-back",
+			handler: (payload: ReceiveOperationEvent) => void,
 		): void;
 	};
 };
@@ -96,6 +124,20 @@ type ProofsReservedEvent = {
 		amount: AmountLike;
 		unit: string;
 	};
+};
+
+type ReceiveOperationLike = Omit<
+	ManagerReceiveOperationDto,
+	"amount" | "fee"
+> & {
+	amount: AmountLike;
+	fee?: AmountLike;
+};
+
+type ReceiveOperationEvent = {
+	mintUrl: string;
+	operationId: string;
+	operation: ReceiveOperationLike;
 };
 
 function createFakeRpc() {
@@ -163,6 +205,33 @@ function createFakeRpc() {
 				managerHistoryGetPaginatedHistory: async (params: unknown) => {
 					calls.push(["managerHistoryGetPaginatedHistory", params]);
 					return [historyEntry("history-1", "42")];
+				},
+				managerReceivePrepare: async (params: unknown) => {
+					calls.push(["managerReceivePrepare", params]);
+					return receiveOperation("receive-1", "prepared");
+				},
+				managerReceiveExecute: async (params: unknown) => {
+					calls.push(["managerReceiveExecute", params]);
+					return receiveOperation("receive-1", "finalized");
+				},
+				managerReceiveGet: async (params: unknown) => {
+					calls.push(["managerReceiveGet", params]);
+					return receiveOperation("receive-1", "prepared");
+				},
+				managerReceiveRefresh: async (params: unknown) => {
+					calls.push(["managerReceiveRefresh", params]);
+					return receiveOperation("receive-1", "executing");
+				},
+				managerReceiveCancel: async (params: unknown) => {
+					calls.push(["managerReceiveCancel", params]);
+				},
+				managerReceiveListPrepared: async () => {
+					calls.push(["managerReceiveListPrepared"]);
+					return [receiveOperation("receive-1", "prepared")];
+				},
+				managerReceiveListInFlight: async () => {
+					calls.push(["managerReceiveListInFlight"]);
+					return [receiveOperation("receive-2", "executing")];
 				},
 			},
 			send: {
@@ -324,6 +393,95 @@ describe("createRemoteCocoManager", () => {
 			["managerEventUnsubscribe", { event: "history:updated" }],
 			["removeMessageListener", "managerEvent"],
 		]);
+	});
+
+	it("forwards Coco React receive operation lifecycle calls and rehydrates amounts", async () => {
+		const fake = createFakeRpc();
+		const manager = createRemoteCocoManager(
+			fake.rpc,
+		) as unknown as RemoteMintManagerSurface;
+
+		const prepared = await manager.ops.receive.prepare({ token: "cashu-token" });
+		const finalized = await manager.ops.receive.execute(prepared);
+		const fetched = await manager.ops.receive.get("receive-1");
+		const refreshed = await manager.ops.receive.refresh("receive-1");
+		await manager.ops.receive.cancel("receive-1", "user cancelled");
+		const preparedList = await manager.ops.receive.listPrepared();
+		const inFlightList = await manager.ops.receive.listInFlight();
+
+		expect(prepared.state).toBe("prepared");
+		expect(finalized.state).toBe("finalized");
+		expect(fetched?.state).toBe("prepared");
+		expect(refreshed.state).toBe("executing");
+		expect(prepared.amount.add("2").toString()).toBe("23");
+		expect(prepared.fee?.add("2").toString()).toBe("3");
+		expect(preparedList[0]?.amount.toString()).toBe("21");
+		expect(inFlightList[0]?.state).toBe("executing");
+		expect(fake.calls).toEqual([
+			["managerReceivePrepare", { token: "cashu-token" }],
+			["managerReceiveExecute", { operationId: "receive-1" }],
+			["managerReceiveGet", { operationId: "receive-1" }],
+			["managerReceiveRefresh", { operationId: "receive-1" }],
+			[
+				"managerReceiveCancel",
+				{ operationId: "receive-1", reason: "user cancelled" },
+			],
+			["managerReceiveListPrepared"],
+			["managerReceiveListInFlight"],
+		]);
+	});
+
+	it("supports a hook-equivalent receive consumer updating from receive lifecycle events", async () => {
+		const fake = createFakeRpc();
+		const manager = createRemoteCocoManager(
+			fake.rpc,
+		) as unknown as RemoteMintManagerSurface;
+		const receive = createReceiveOperationConsumer(manager);
+
+		await receive.mount();
+		fake.emit({
+			event: "receive-op:finalized",
+			payload: {
+				mintUrl: "https://mint.example",
+				operationId: "receive-1",
+				operation: receiveOperation("receive-1", "finalized"),
+			},
+		});
+		receive.unmount();
+		fake.emit({
+			event: "receive-op:rolled-back",
+			payload: {
+				mintUrl: "https://mint.example",
+				operationId: "receive-ignored",
+				operation: receiveOperation("receive-ignored", "rolled_back"),
+			},
+		});
+
+		expect(receive.operations.map((operation) => operation.state)).toEqual([
+			"finalized",
+		]);
+		expect(receive.operations[0]?.amount.add("2").toString()).toBe("23");
+		expect(fake.calls).toEqual([
+			["managerReceiveListPrepared"],
+			["addMessageListener", "managerEvent"],
+			["managerEventSubscribe", { event: "receive-op:finalized" }],
+			["managerEventUnsubscribe", { event: "receive-op:finalized" }],
+			["removeMessageListener", "managerEvent"],
+		]);
+	});
+
+	it("surfaces receive operation errors from the manager RPC", async () => {
+		const fake = createFakeRpc();
+		fake.rpc.request.managerReceivePrepare = async () => {
+			throw new Error("Token validation failed");
+		};
+		const manager = createRemoteCocoManager(
+			fake.rpc,
+		) as unknown as RemoteMintManagerSurface;
+
+		await expect(
+			manager.ops.receive.prepare({ token: "bad-token" }),
+		).rejects.toThrow("Token validation failed");
 	});
 
 	it("delivers mint events through on, off, and unsubscribe behavior", () => {
@@ -509,6 +667,29 @@ function createPaginatedHistoryConsumer(
 	};
 }
 
+function createReceiveOperationConsumer(manager: RemoteMintManagerSurface) {
+	let operations: ReceiveOperationLike[] = [];
+	let unsubscribe: (() => void) | undefined;
+
+	return {
+		get operations() {
+			return operations;
+		},
+		async mount() {
+			operations = await manager.ops.receive.listPrepared();
+			unsubscribe = manager.on("receive-op:finalized", (payload) => {
+				operations = operations
+					.filter((operation) => operation.id !== payload.operationId)
+					.concat(payload.operation);
+			});
+		},
+		unmount() {
+			unsubscribe?.();
+			unsubscribe = undefined;
+		},
+	};
+}
+
 function historyEntry(id: string, amount: string): ManagerHistoryEntryDto {
 	return {
 		id,
@@ -522,5 +703,31 @@ function historyEntry(id: string, amount: string): ManagerHistoryEntryDto {
 		token: { token: [{ mint: "https://mint.example", proofs: [] }] },
 		createdAt: 10,
 		updatedAt: 11,
+	};
+}
+
+function receiveOperation(
+	id: string,
+	state: ManagerReceiveOperationDto["state"],
+): ManagerReceiveOperationDto {
+	return {
+		id,
+		mintUrl: "https://mint.example",
+		unit: "sat",
+		amount: "21",
+		inputProofs: [
+			{
+				id: "proof-1",
+				amount: 21,
+				secret: "secret-1",
+				C: "C-1",
+			},
+		],
+		createdAt: 20,
+		updatedAt: 30,
+		state,
+		source: { type: "manual-token" },
+		fee: "1",
+		outputData: { keep: [{ amount: 20 }] },
 	};
 }

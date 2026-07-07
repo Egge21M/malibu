@@ -79,6 +79,27 @@ const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 					params,
 				);
 			},
+			managerReceivePrepare: async (params) => {
+				return managerRpcRequestHandlers.managerReceivePrepare(params);
+			},
+			managerReceiveExecute: async (params) => {
+				return managerRpcRequestHandlers.managerReceiveExecute(params);
+			},
+			managerReceiveGet: async (params) => {
+				return managerRpcRequestHandlers.managerReceiveGet(params);
+			},
+			managerReceiveRefresh: async (params) => {
+				return managerRpcRequestHandlers.managerReceiveRefresh(params);
+			},
+			managerReceiveCancel: async (params) => {
+				return managerRpcRequestHandlers.managerReceiveCancel(params);
+			},
+			managerReceiveListPrepared: async () => {
+				return managerRpcRequestHandlers.managerReceiveListPrepared();
+			},
+			managerReceiveListInFlight: async () => {
+				return managerRpcRequestHandlers.managerReceiveListInFlight();
+			},
 			snapshot: () => walletService.snapshot(),
 			addMint: (params) => walletService.addMint(params),
 			restoreMint: (params) => walletService.restoreMint(params),
