@@ -22,6 +22,7 @@ import {
 } from "@cashu/coco-react";
 import {
 	Activity,
+	AtSign,
 	Check,
 	Copy,
 	Database,
@@ -31,10 +32,12 @@ import {
 	Landmark,
 	Plus,
 	RefreshCw,
+	ReceiptText,
 	RotateCcw,
 	Send,
 	Settings,
 	ShieldCheck,
+	UserRound,
 	Wallet,
 	X,
 	Zap,
@@ -111,6 +114,11 @@ import { cn } from "@/lib/utils";
 import { getRemoteCocoManager, walletClient } from "@/lib/wallet-client";
 import type { ManagerEventName } from "@/lib/manager-rpc";
 import type {
+	NpcPaymentRequestDto,
+	NpcSetUsernameResultDto,
+	NpcStateDto,
+} from "@/lib/wallet-rpc";
+import type {
 	BalanceSnapshotDto,
 	MintBalanceDto,
 	MintDto,
@@ -134,6 +142,10 @@ type WalletViewContext = {
 	totals: BalanceSnapshotDto[];
 	operations: WalletOperationDto[];
 	history: WalletHistoryDto[];
+	npcState: NpcStateDto | null;
+	npcUsername: string;
+	setNpcUsername: (value: string) => void;
+	lastNpcUsernameResult: NpcSetUsernameResultDto | null;
 	mintUrl: string;
 	setMintUrl: (value: string) => void;
 	quoteMintUrl: string;
@@ -181,6 +193,9 @@ type WalletViewContext = {
 	handleCancelMelt: (operationId: string) => void;
 	handleRefreshMeltOperation: (operationId: string) => void;
 	handleOperationAction: (operation: WalletOperationDto) => void;
+	handleSyncNpc: () => void;
+	handlePreviewNpcUsername: (event: React.FormEvent<HTMLFormElement>) => void;
+	handleBuyNpcUsername: () => void;
 };
 
 type RouteItem = {
@@ -262,6 +277,10 @@ function WalletWorkspace() {
 	const [busy, setBusy] = React.useState<string | null>(null);
 	const [dataDir, setDataDir] = React.useState("");
 	const [operations, setOperations] = React.useState<WalletOperationDto[]>([]);
+	const [npcState, setNpcState] = React.useState<NpcStateDto | null>(null);
+	const [npcUsername, setNpcUsername] = React.useState("");
+	const [lastNpcUsernameResult, setLastNpcUsernameResult] =
+		React.useState<NpcSetUsernameResultDto | null>(null);
 	const [mintUrl, setMintUrl] = React.useState("");
 	const [quoteMintUrl, setQuoteMintUrl] = React.useState("");
 	const [quoteAmount, setQuoteAmount] = React.useState("21");
@@ -413,6 +432,12 @@ function WalletWorkspace() {
 				refreshHistory(),
 				loadOperations(),
 				walletClient.dataDir().then(setDataDir),
+				walletClient.npc.getState().then((state) => {
+					setNpcState(state);
+					if (state.username) {
+						setNpcUsername((current) => current || state.username || "");
+					}
+				}),
 			]);
 			setStatus(null);
 		} catch (error) {
@@ -486,6 +511,40 @@ function WalletWorkspace() {
 		} finally {
 			setBusy(null);
 		}
+	}
+
+	function handleSyncNpc() {
+		void runAction(
+			"syncNpc",
+			() => walletClient.npc.sync(),
+			"Lightning address synced",
+			(state) => setNpcState(state),
+		);
+	}
+
+	function handlePreviewNpcUsername(event: React.FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+		void runAction(
+			"npcUsernamePreview",
+			() => walletClient.npc.setUsername(npcUsername, false),
+			"Username checked",
+			(result) => {
+				setLastNpcUsernameResult(result);
+				setNpcState(result.state);
+			},
+		);
+	}
+
+	function handleBuyNpcUsername() {
+		void runAction(
+			"npcUsernameBuy",
+			() => walletClient.npc.setUsername(npcUsername, true),
+			"Username updated",
+			(result) => {
+				setLastNpcUsernameResult(result);
+				setNpcState(result.state);
+			},
+		);
 	}
 
 	function handleAddMint(event: React.FormEvent<HTMLFormElement>) {
@@ -736,6 +795,10 @@ function WalletWorkspace() {
 			totals: displayedTotals,
 			operations,
 			history,
+			npcState,
+			npcUsername,
+			setNpcUsername,
+			lastNpcUsernameResult,
 			mintUrl,
 			setMintUrl,
 			quoteMintUrl,
@@ -783,6 +846,9 @@ function WalletWorkspace() {
 			handleCancelMelt,
 			handleRefreshMeltOperation,
 			handleOperationAction,
+			handleSyncNpc,
+			handlePreviewNpcUsername,
+			handleBuyNpcUsername,
 		}),
 		[
 			walletSnapshot,
@@ -792,6 +858,9 @@ function WalletWorkspace() {
 			displayedTotals,
 			operations,
 			history,
+			npcState,
+			npcUsername,
+			lastNpcUsernameResult,
 			mintUrl,
 			quoteMintUrl,
 			quoteAmount,
@@ -954,6 +1023,27 @@ function AppSidebar() {
 								</div>
 							</div>
 						))}
+					</SidebarGroupContent>
+				</SidebarGroup>
+				<SidebarGroup className="group-data-[collapsible=icon]:hidden">
+					<SidebarGroupLabel>Lightning address</SidebarGroupLabel>
+					<SidebarGroupContent className="px-2">
+						<div className="grid gap-2 border-l-2 border-sidebar-primary/50 pl-3">
+							<div className="flex min-w-0 items-center gap-2">
+								<AtSign className="size-4 shrink-0 text-sidebar-primary" />
+								<span className="truncate text-sm font-semibold">
+									{wallet.npcState?.lightningAddress ?? "Not claimed"}
+								</span>
+							</div>
+							<div className="flex items-center justify-between gap-2">
+								<span className="truncate text-xs text-sidebar-foreground/70">
+									{getNpcHost(wallet.npcState)}
+								</span>
+								{wallet.npcState?.lightningAddress ? (
+									<CopyButton value={wallet.npcState.lightningAddress} compact />
+								) : null}
+							</div>
+						</div>
 					</SidebarGroupContent>
 				</SidebarGroup>
 				<SidebarSeparator />
@@ -1134,49 +1224,58 @@ function OverviewScreen() {
 					</div>
 				</section>
 
-				<Card>
-					<CardHeader>
-						<CardTitle className="flex items-center gap-2">
-							<ShieldCheck className="size-5" />
-							Readiness
-						</CardTitle>
-						<CardDescription>{walletState.detail}</CardDescription>
-					</CardHeader>
-					<CardContent className="flex flex-col gap-4">
-						<ReadinessRow
-							icon={Database}
-							label="Wallet service"
-							value={walletConnected ? "Connected" : "Connecting"}
-							state={walletConnected ? "ok" : "muted"}
-						/>
-						<ReadinessRow
-							icon={Landmark}
-							label="Trusted mint access"
-							value={
-								wallet.trustedMints.length
-									? `${wallet.trustedMints.length} available`
-									: "None"
-							}
-							state={wallet.trustedMints.length ? "ok" : "warn"}
-						/>
-						<ReadinessRow
-							icon={Activity}
-							label="Prepared operations"
-							value={
-								preparedOperations.length
-									? `${preparedOperations.length} ready to run`
-									: "Clear"
-							}
-							state={preparedOperations.length ? "warn" : "ok"}
-						/>
-						<ReadinessRow
-							icon={RefreshCw}
-							label="Pending settlement"
-							value={pendingOperations.length ? String(pendingOperations.length) : "Clear"}
-							state={pendingOperations.length ? "warn" : "ok"}
-						/>
-					</CardContent>
-				</Card>
+				<div className="grid gap-5">
+					<LightningAddressCard />
+					<Card>
+						<CardHeader>
+							<CardTitle className="flex items-center gap-2">
+								<ShieldCheck className="size-5" />
+								Readiness
+							</CardTitle>
+							<CardDescription>{walletState.detail}</CardDescription>
+						</CardHeader>
+						<CardContent className="flex flex-col gap-4">
+							<ReadinessRow
+								icon={Database}
+								label="Wallet service"
+								value={walletConnected ? "Connected" : "Connecting"}
+								state={walletConnected ? "ok" : "muted"}
+							/>
+							<ReadinessRow
+								icon={AtSign}
+								label="Lightning address"
+								value={wallet.npcState?.lightningAddress ? "Claimed" : "Open"}
+								state={wallet.npcState?.lightningAddress ? "ok" : "warn"}
+							/>
+							<ReadinessRow
+								icon={Landmark}
+								label="Trusted mint access"
+								value={
+									wallet.trustedMints.length
+										? `${wallet.trustedMints.length} available`
+										: "None"
+								}
+								state={wallet.trustedMints.length ? "ok" : "warn"}
+							/>
+							<ReadinessRow
+								icon={Activity}
+								label="Prepared operations"
+								value={
+									preparedOperations.length
+										? `${preparedOperations.length} ready to run`
+										: "Clear"
+								}
+								state={preparedOperations.length ? "warn" : "ok"}
+							/>
+							<ReadinessRow
+								icon={RefreshCw}
+								label="Pending settlement"
+								value={pendingOperations.length ? String(pendingOperations.length) : "Clear"}
+								state={pendingOperations.length ? "warn" : "ok"}
+							/>
+						</CardContent>
+					</Card>
+				</div>
 			</div>
 
 			<div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,0.8fr)]">
@@ -1704,20 +1803,187 @@ function SettingsScreen() {
 				title="Settings"
 				description="Local wallet storage and application state."
 			/>
-			<Card size="sm" className="max-w-2xl">
-				<CardHeader>
-					<CardTitle className="flex items-center gap-2 text-sm">
-						<Database className="size-4" />
-						Storage
-					</CardTitle>
-				</CardHeader>
-				<CardContent>
-					<p className="break-all text-xs leading-relaxed text-muted-foreground">
-						{wallet.snapshot?.dataDir ?? "Waiting for wallet bridge"}
-					</p>
-				</CardContent>
-			</Card>
+			<div className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+				<NpcUsernameCard />
+				<Card size="sm">
+					<CardHeader>
+						<CardTitle className="flex items-center gap-2 text-sm">
+							<Database className="size-4" />
+							Storage
+						</CardTitle>
+					</CardHeader>
+					<CardContent>
+						<p className="break-all text-xs leading-relaxed text-muted-foreground">
+							{wallet.snapshot?.dataDir ?? "Waiting for wallet bridge"}
+						</p>
+					</CardContent>
+				</Card>
+			</div>
 		</div>
+	);
+}
+
+function LightningAddressCard() {
+	const wallet = useWallet();
+	const address = wallet.npcState?.lightningAddress;
+	const addressLabel = address ?? "No username claimed";
+	const syncBusy = wallet.busy === "syncNpc";
+
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle className="flex items-center gap-2">
+					<AtSign className="size-5" />
+					Lightning address
+				</CardTitle>
+				<CardDescription>{getNpcHost(wallet.npcState)}</CardDescription>
+				<CardAction>
+					<Badge variant={address ? "default" : "secondary"}>
+						{address ? "active" : "available"}
+					</Badge>
+				</CardAction>
+			</CardHeader>
+			<CardContent className="flex flex-col gap-4">
+				<div className="min-w-0 border-l-2 border-primary/60 pl-3">
+					<div className="truncate text-xl font-semibold">{addressLabel}</div>
+					<div className="mt-1 truncate text-xs text-muted-foreground">
+						{wallet.npcState?.publicKey ?? "Waiting for NPC identity"}
+					</div>
+				</div>
+				{wallet.npcState?.error ? (
+					<Alert variant="destructive">
+						<AlertTitle>NPC unavailable</AlertTitle>
+						<AlertDescription>{wallet.npcState.error}</AlertDescription>
+					</Alert>
+				) : null}
+				<div className="flex flex-wrap gap-2">
+					{address ? <CopyButton value={address} /> : null}
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						disabled={wallet.busy !== null}
+						onClick={wallet.handleSyncNpc}
+					>
+						<RefreshCw
+							data-icon="inline-start"
+							className={cn(syncBusy && "animate-spin")}
+						/>
+						Sync
+					</Button>
+					<Button
+						render={<NavLink to="/settings" />}
+						nativeButton={false}
+						variant={address ? "ghost" : "default"}
+						size="sm"
+					>
+						<UserRound data-icon="inline-start" />
+						{address ? "Manage" : "Claim username"}
+					</Button>
+				</div>
+			</CardContent>
+		</Card>
+	);
+}
+
+function NpcUsernameCard() {
+	const wallet = useWallet();
+	const paymentRequest = wallet.lastNpcUsernameResult?.success === false
+		? wallet.lastNpcUsernameResult.paymentRequest
+		: null;
+
+	return (
+		<Card size="sm">
+			<CardHeader>
+				<CardTitle className="flex items-center gap-2 text-sm">
+					<UserRound className="size-4" />
+					Lightning username
+				</CardTitle>
+				<CardDescription>
+					{wallet.npcState?.lightningAddress ?? getNpcHost(wallet.npcState)}
+				</CardDescription>
+				<CardAction>
+					<Badge variant={wallet.npcState?.lightningAddress ? "default" : "secondary"}>
+						{wallet.npcState?.lightningAddress ? "claimed" : "unclaimed"}
+					</Badge>
+				</CardAction>
+			</CardHeader>
+			<CardContent className="flex flex-col gap-4">
+				<form className="flex flex-col gap-3" onSubmit={wallet.handlePreviewNpcUsername}>
+					<FieldGroup className="gap-3">
+						<Field label="Username">
+							<Input
+								value={wallet.npcUsername}
+								onChange={(event) => wallet.setNpcUsername(event.target.value)}
+								placeholder="alice"
+								autoCapitalize="none"
+								autoCorrect="off"
+							/>
+						</Field>
+					</FieldGroup>
+					<div className="flex flex-wrap gap-2">
+						<Button type="submit" size="sm" disabled={wallet.busy !== null}>
+							<ReceiptText data-icon="inline-start" />
+							Check price
+						</Button>
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							disabled={wallet.busy !== null || !wallet.npcUsername.trim()}
+							onClick={wallet.handleBuyNpcUsername}
+						>
+							<Zap data-icon="inline-start" />
+							Buy username
+						</Button>
+						<Button
+							type="button"
+							variant="ghost"
+							size="sm"
+							disabled={wallet.busy !== null}
+							onClick={wallet.handleSyncNpc}
+						>
+							<RefreshCw data-icon="inline-start" />
+							Sync
+						</Button>
+					</div>
+				</form>
+
+				{paymentRequest ? (
+					<div className="grid gap-3 border p-3">
+						<div className="flex items-center justify-between gap-3">
+							<div className="min-w-0">
+								<div className="truncate text-sm font-semibold">
+									Payment required
+								</div>
+								<div className="truncate text-xs text-muted-foreground">
+									{formatPaymentRequestAmount(paymentRequest)}
+								</div>
+							</div>
+							<Button
+								type="button"
+								size="sm"
+								disabled={wallet.busy !== null}
+								onClick={wallet.handleBuyNpcUsername}
+							>
+								<Zap data-icon="inline-start" />
+								Pay
+							</Button>
+						</div>
+						{paymentRequest.encoded ? (
+							<OutputBlock title="Payment request" value={paymentRequest.encoded} />
+						) : null}
+					</div>
+				) : null}
+
+				{wallet.npcState?.error ? (
+					<Alert variant="destructive">
+						<AlertTitle>NPC unavailable</AlertTitle>
+						<AlertDescription>{wallet.npcState.error}</AlertDescription>
+					</Alert>
+				) : null}
+			</CardContent>
+		</Card>
 	);
 }
 
@@ -2654,6 +2920,29 @@ function formatDate(value: number) {
 		hour: "2-digit",
 		minute: "2-digit",
 	});
+}
+
+function getNpcHost(state: NpcStateDto | null) {
+	if (!state) {
+		return "NPC account loading";
+	}
+
+	try {
+		return new URL(state.baseUrl).host;
+	} catch {
+		return state.baseUrl;
+	}
+}
+
+function formatPaymentRequestAmount(paymentRequest: NpcPaymentRequestDto) {
+	const amount = paymentRequest.amount;
+	const unit = paymentRequest.unit;
+
+	if (amount && unit) {
+		return `${formatAmount(amount)} ${unit}`;
+	}
+
+	return paymentRequest.description ?? "Payment quote returned";
 }
 
 function getErrorMessage(error: unknown) {
