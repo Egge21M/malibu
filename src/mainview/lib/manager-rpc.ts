@@ -33,10 +33,17 @@ export type ManagerHistoryType = "mint" | "melt" | "send" | "receive";
 
 export type ManagerHistoryEventName = "history:updated";
 
+export type ManagerMintOperationEventName =
+	| "mint-op:pending"
+	| "mint-op:executing"
+	| "mint-op:finalized"
+	| "mint-op:requeue";
+
 export type ManagerEventName =
 	| ManagerMintEventName
 	| ManagerBalanceRefreshEventName
-	| ManagerHistoryEventName;
+	| ManagerHistoryEventName
+	| ManagerMintOperationEventName;
 
 export type ManagerMintWithKeysetsDto = {
 	mint: ManagerMintDto;
@@ -97,6 +104,34 @@ export type ManagerHistoryEntryDto = {
 	token?: unknown;
 };
 
+export type ManagerMintOperationDto = Record<string, unknown> & {
+	id: string;
+	mintUrl: string;
+	method: ManagerMintMethod;
+	state: string;
+	amount?: string;
+	unit?: string;
+	quoteId?: string;
+	request?: string;
+	expiry?: number | null;
+	error?: string;
+	createdAt: number;
+	updatedAt: number;
+};
+
+export type ManagerPendingMintCheckResultDto = Record<string, unknown> & {
+	observedRemoteState?: unknown;
+	observedRemoteStateAt: number;
+	quoteSnapshot?: Record<string, unknown>;
+	category: string;
+	terminalFailure?: {
+		reason: string;
+		code?: string;
+		retryable?: boolean;
+		observedAt: number;
+	};
+};
+
 export type ManagerEventPayloads = {
 	"mint:added": ManagerMintWithKeysetsDto;
 	"mint:updated": ManagerMintWithKeysetsDto;
@@ -125,6 +160,26 @@ export type ManagerEventPayloads = {
 	"history:updated": {
 		mintUrl: string;
 		entry: ManagerHistoryEntryDto;
+	};
+	"mint-op:pending": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerMintOperationDto;
+	};
+	"mint-op:executing": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerMintOperationDto;
+	};
+	"mint-op:finalized": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerMintOperationDto;
+	};
+	"mint-op:requeue": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerMintOperationDto;
 	};
 };
 
@@ -156,6 +211,26 @@ export type ManagerHistoryPaginationParams = {
 	offset?: number;
 	limit?: number;
 };
+
+export type ManagerMintOperationPrepareParams = {
+	quote: {
+		mintUrl: string;
+		method: ManagerMintMethod;
+		quoteId: string;
+	};
+	amount: string;
+};
+
+export type ManagerMintOperationIdParams = {
+	operationId: string;
+};
+
+export type ManagerMintOperationListByQuoteParams = {
+	mintUrl: string;
+	quoteId: string;
+};
+
+export type ManagerMintMethod = "bolt11" | "onchain" | "bolt12";
 
 export type ManagerRpcRequests = {
 	managerMintGetAllMints: {
@@ -201,6 +276,42 @@ export type ManagerRpcRequests = {
 	managerHistoryGetPaginatedHistory: {
 		params: ManagerHistoryPaginationParams;
 		response: ManagerHistoryEntryDto[];
+	};
+	managerMintOpsPrepare: {
+		params: ManagerMintOperationPrepareParams;
+		response: ManagerMintOperationDto;
+	};
+	managerMintOpsRefresh: {
+		params: ManagerMintOperationIdParams;
+		response: ManagerMintOperationDto;
+	};
+	managerMintOpsExecute: {
+		params: ManagerMintOperationIdParams;
+		response: ManagerMintOperationDto;
+	};
+	managerMintOpsCheckPayment: {
+		params: ManagerMintOperationIdParams;
+		response: ManagerPendingMintCheckResultDto;
+	};
+	managerMintOpsFinalize: {
+		params: ManagerMintOperationIdParams;
+		response: ManagerMintOperationDto;
+	};
+	managerMintOpsGet: {
+		params: ManagerMintOperationIdParams;
+		response: ManagerMintOperationDto | null;
+	};
+	managerMintOpsListByQuote: {
+		params: ManagerMintOperationListByQuoteParams;
+		response: ManagerMintOperationDto[];
+	};
+	managerMintOpsListPending: {
+		params: undefined;
+		response: ManagerMintOperationDto[];
+	};
+	managerMintOpsListInFlight: {
+		params: undefined;
+		response: ManagerMintOperationDto[];
 	};
 };
 

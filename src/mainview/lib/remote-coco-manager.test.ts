@@ -9,6 +9,8 @@ import type {
 	ManagerHistoryEntryDto,
 	ManagerMintDto,
 	ManagerMintWithKeysetsDto,
+	ManagerMintOperationDto,
+	ManagerPendingMintCheckResultDto,
 } from "@/lib/manager-rpc";
 import { createRemoteCocoManager } from "@/lib/remote-coco-manager";
 
@@ -42,6 +44,31 @@ type RemoteMintManagerSurface = {
 			limit?: number,
 		) => Promise<HistoryEntry[]>;
 	};
+	ops: {
+		mint: {
+			prepare: (input: {
+				quote: {
+					mintUrl: string;
+					method: "bolt11";
+					quoteId: string;
+				};
+				amount: AmountLike | string;
+			}) => Promise<MintOperation>;
+			refresh: (operationId: string) => Promise<MintOperation>;
+			execute: (operationOrId: MintOperation | string) => Promise<MintOperation>;
+			checkPayment: (
+				operationId: string,
+			) => Promise<ManagerPendingMintCheckResultDto>;
+			finalize: (operationId: string) => Promise<MintOperation>;
+			get: (operationId: string) => Promise<MintOperation | null>;
+			listByQuote: (input: {
+				mintUrl: string;
+				quoteId: string;
+			}) => Promise<MintOperation[]>;
+			listPending: () => Promise<MintOperation[]>;
+			listInFlight: () => Promise<MintOperation[]>;
+		};
+	};
 	on: {
 		(
 			event: "mint:added" | "mint:updated",
@@ -54,6 +81,10 @@ type RemoteMintManagerSurface = {
 		(
 			event: "history:updated",
 			handler: (payload: { mintUrl: string; entry: HistoryEntry }) => void,
+		): () => void;
+		(
+			event: "mint-op:pending",
+			handler: (payload: MintOperationEvent) => void,
 		): () => void;
 	};
 	off: {
@@ -68,6 +99,10 @@ type RemoteMintManagerSurface = {
 		(
 			event: "history:updated",
 			handler: (payload: { mintUrl: string; entry: HistoryEntry }) => void,
+		): void;
+		(
+			event: "mint-op:pending",
+			handler: (payload: MintOperationEvent) => void,
 		): void;
 	};
 };
@@ -96,6 +131,16 @@ type ProofsReservedEvent = {
 		amount: AmountLike;
 		unit: string;
 	};
+};
+
+type MintOperation = Omit<ManagerMintOperationDto, "amount"> & {
+	amount: AmountLike;
+};
+
+type MintOperationEvent = {
+	mintUrl: string;
+	operationId: string;
+	operation: MintOperation;
 };
 
 function createFakeRpc() {
@@ -163,6 +208,51 @@ function createFakeRpc() {
 				managerHistoryGetPaginatedHistory: async (params: unknown) => {
 					calls.push(["managerHistoryGetPaginatedHistory", params]);
 					return [historyEntry("history-1", "42")];
+				},
+				managerMintOpsPrepare: async (params: unknown) => {
+					calls.push(["managerMintOpsPrepare", params]);
+					return mintOperation("mint-op-1", "pending", "5");
+				},
+				managerMintOpsRefresh: async (params: unknown) => {
+					calls.push(["managerMintOpsRefresh", params]);
+					return mintOperation("mint-op-1", "pending", "6");
+				},
+				managerMintOpsExecute: async (params: unknown) => {
+					calls.push(["managerMintOpsExecute", params]);
+					return mintOperation("mint-op-1", "executing", "7");
+				},
+				managerMintOpsCheckPayment: async (params: unknown) => {
+					calls.push(["managerMintOpsCheckPayment", params]);
+					return {
+						category: "ready",
+						observedRemoteState: "PAID",
+						observedRemoteStateAt: 12,
+						quoteSnapshot: {
+							amount: "8",
+							amountPaid: "8",
+							amountIssued: "0",
+						},
+					};
+				},
+				managerMintOpsFinalize: async (params: unknown) => {
+					calls.push(["managerMintOpsFinalize", params]);
+					return mintOperation("mint-op-1", "finalized", "9");
+				},
+				managerMintOpsGet: async (params: unknown) => {
+					calls.push(["managerMintOpsGet", params]);
+					return mintOperation("mint-op-1", "pending", "10");
+				},
+				managerMintOpsListByQuote: async (params: unknown) => {
+					calls.push(["managerMintOpsListByQuote", params]);
+					return [mintOperation("mint-op-1", "pending", "11")];
+				},
+				managerMintOpsListPending: async () => {
+					calls.push(["managerMintOpsListPending"]);
+					return [mintOperation("mint-op-1", "pending", "12")];
+				},
+				managerMintOpsListInFlight: async () => {
+					calls.push(["managerMintOpsListInFlight"]);
+					return [mintOperation("mint-op-1", "executing", "13")];
 				},
 			},
 			send: {
@@ -287,6 +377,92 @@ describe("createRemoteCocoManager", () => {
 		).toBe("function");
 	});
 
+	it("forwards Coco React mint operation lifecycle calls and rehydrates amounts", async () => {
+		const fake = createFakeRpc();
+		const manager = createRemoteCocoManager(
+			fake.rpc,
+		) as unknown as RemoteMintManagerSurface;
+
+		const prepared = await manager.ops.mint.prepare({
+			quote: {
+				mintUrl: "https://mint.example",
+				method: "bolt11",
+				quoteId: "quote-1",
+			},
+			amount: "5",
+		});
+		const refreshed = await manager.ops.mint.refresh("mint-op-1");
+		const executed = await manager.ops.mint.execute(prepared);
+		const check = await manager.ops.mint.checkPayment("mint-op-1");
+		const finalized = await manager.ops.mint.finalize("mint-op-1");
+		const fetched = await manager.ops.mint.get("mint-op-1");
+		const byQuote = await manager.ops.mint.listByQuote({
+			mintUrl: "https://mint.example",
+			quoteId: "quote-1",
+		});
+		const pending = await manager.ops.mint.listPending();
+		const inFlight = await manager.ops.mint.listInFlight();
+
+		expect(prepared.amount.add("2").toString()).toBe("7");
+		expect(refreshed.amount.add("2").toString()).toBe("8");
+		expect(executed.amount.add("2").toString()).toBe("9");
+		expect(finalized.amount.add("2").toString()).toBe("11");
+		expect(fetched?.amount.add("2").toString()).toBe("12");
+		expect(byQuote[0]?.amount.add("2").toString()).toBe("13");
+		expect(pending[0]?.amount.add("2").toString()).toBe("14");
+		expect(inFlight[0]?.amount.add("2").toString()).toBe("15");
+		expect(
+			(
+				check.quoteSnapshot as {
+					amount: AmountLike;
+					amountPaid: AmountLike;
+					amountIssued: AmountLike;
+				}
+			).amountPaid.add("2").toString(),
+		).toBe("10");
+		expect(fake.calls).toEqual([
+			[
+				"managerMintOpsPrepare",
+				{
+					quote: {
+						mintUrl: "https://mint.example",
+						method: "bolt11",
+						quoteId: "quote-1",
+					},
+					amount: "5",
+				},
+			],
+			["managerMintOpsRefresh", { operationId: "mint-op-1" }],
+			["managerMintOpsExecute", { operationId: "mint-op-1" }],
+			["managerMintOpsCheckPayment", { operationId: "mint-op-1" }],
+			["managerMintOpsFinalize", { operationId: "mint-op-1" }],
+			["managerMintOpsGet", { operationId: "mint-op-1" }],
+			[
+				"managerMintOpsListByQuote",
+				{
+					mintUrl: "https://mint.example",
+					quoteId: "quote-1",
+				},
+			],
+			["managerMintOpsListPending"],
+			["managerMintOpsListInFlight"],
+		]);
+	});
+
+	it("surfaces mint operation RPC errors without adapter wrapping", async () => {
+		const fake = createFakeRpc();
+		fake.rpc.request.managerMintOpsFinalize = async () => {
+			throw new Error("Mint quote expired");
+		};
+		const manager = createRemoteCocoManager(
+			fake.rpc,
+		) as unknown as RemoteMintManagerSurface;
+
+		await expect(manager.ops.mint.finalize("mint-op-1")).rejects.toThrow(
+			"Mint quote expired",
+		);
+	});
+
 	it("supports a hook-equivalent history consumer refreshing from history:updated events", async () => {
 		const fake = createFakeRpc();
 		const manager = createRemoteCocoManager(
@@ -322,6 +498,46 @@ describe("createRemoteCocoManager", () => {
 			["managerEventSubscribe", { event: "history:updated" }],
 			["managerHistoryGetPaginatedHistory", { offset: 0, limit: 24 }],
 			["managerEventUnsubscribe", { event: "history:updated" }],
+			["removeMessageListener", "managerEvent"],
+		]);
+	});
+
+	it("supports a hook-equivalent mint operation consumer refreshing from mint operation events", async () => {
+		const fake = createFakeRpc();
+		const manager = createRemoteCocoManager(
+			fake.rpc,
+		) as unknown as RemoteMintManagerSurface;
+		const consumer = createMintOperationConsumer(manager, "mint-op-1");
+
+		await consumer.mount();
+		fake.emit({
+			event: "mint-op:pending",
+			payload: {
+				mintUrl: "https://mint.example",
+				operationId: "mint-op-1",
+				operation: mintOperation("mint-op-1", "pending", "21"),
+			},
+		});
+		await Promise.resolve();
+		consumer.unmount();
+		fake.emit({
+			event: "mint-op:pending",
+			payload: {
+				mintUrl: "https://mint.example",
+				operationId: "mint-op-ignored",
+				operation: mintOperation("mint-op-ignored", "pending", "1"),
+			},
+		});
+		await Promise.resolve();
+
+		expect(consumer.loads).toHaveLength(2);
+		expect(consumer.current?.amount.toString()).toBe("10");
+		expect(fake.calls).toEqual([
+			["managerMintOpsGet", { operationId: "mint-op-1" }],
+			["addMessageListener", "managerEvent"],
+			["managerEventSubscribe", { event: "mint-op:pending" }],
+			["managerMintOpsGet", { operationId: "mint-op-1" }],
+			["managerEventUnsubscribe", { event: "mint-op:pending" }],
 			["removeMessageListener", "managerEvent"],
 		]);
 	});
@@ -451,6 +667,11 @@ describe("createRemoteCocoManager", () => {
 		).toThrow(
 			'Remote Coco manager history API does not support "getById" yet',
 		);
+		expect(
+			() => (manager.ops as unknown as Record<string, unknown>)["send"],
+		).toThrow(
+			'Remote Coco manager ops API does not support "send" yet',
+		);
 	});
 });
 
@@ -522,5 +743,59 @@ function historyEntry(id: string, amount: string): ManagerHistoryEntryDto {
 		token: { token: [{ mint: "https://mint.example", proofs: [] }] },
 		createdAt: 10,
 		updatedAt: 11,
+	};
+}
+
+function mintOperation(
+	id: string,
+	state: string,
+	amount: string,
+): ManagerMintOperationDto {
+	return {
+		id,
+		mintUrl: "https://mint.example",
+		method: "bolt11",
+		state,
+		amount,
+		unit: "sat",
+		quoteId: "quote-1",
+		request: "lnbc1...",
+		expiry: null,
+		createdAt: 20,
+		updatedAt: 21,
+	};
+}
+
+function createMintOperationConsumer(
+	manager: RemoteMintManagerSurface,
+	operationId: string,
+) {
+	const loads: MintOperation[] = [];
+	let current: MintOperation | null = null;
+	let unsubscribe: (() => void) | undefined;
+	const refresh = async () => {
+		current = await manager.ops.mint.get(operationId);
+		if (current) {
+			loads.push(current);
+		}
+	};
+
+	return {
+		get current() {
+			return current;
+		},
+		loads,
+		async mount() {
+			await refresh();
+			unsubscribe = manager.on("mint-op:pending", (payload) => {
+				if (payload.operationId === operationId) {
+					void refresh();
+				}
+			});
+		},
+		unmount() {
+			unsubscribe?.();
+			unsubscribe = undefined;
+		},
 	};
 }

@@ -7,6 +7,7 @@ import {
 import type {
 	ManagerEventName,
 	ManagerHistoryEntryDto,
+	ManagerMintOperationDto,
 } from "../mainview/lib/manager-rpc.ts";
 
 describe("manager RPC handlers", () => {
@@ -80,6 +81,56 @@ describe("manager RPC handlers", () => {
 		await expect(
 			handlers.managerHistoryGetPaginatedHistory({ offset: 10, limit: 5 }),
 		).resolves.toEqual([serializedHistoryEntry("history-1", "123")]);
+		await expect(
+			handlers.managerMintOpsPrepare({
+				quote: {
+					mintUrl: "https://mint.example",
+					method: "bolt11",
+					quoteId: "quote-1",
+				},
+				amount: "5",
+			}),
+		).resolves.toEqual(serializedMintOperation("mint-op-1", "pending", "5"));
+		await expect(
+			handlers.managerMintOpsRefresh({ operationId: "mint-op-1" }),
+		).resolves.toEqual(serializedMintOperation("mint-op-1", "pending", "6"));
+		await expect(
+			handlers.managerMintOpsExecute({ operationId: "mint-op-1" }),
+		).resolves.toEqual(serializedMintOperation("mint-op-1", "executing", "7"));
+		await expect(
+			handlers.managerMintOpsCheckPayment({ operationId: "mint-op-1" }),
+		).resolves.toEqual({
+			category: "ready",
+			observedRemoteState: "PAID",
+			observedRemoteStateAt: 12,
+			quoteSnapshot: {
+				amount: "8",
+				quoteData: {
+					amountPaid: "8",
+					amountIssued: "0",
+				},
+			},
+		});
+		await expect(
+			handlers.managerMintOpsFinalize({ operationId: "mint-op-1" }),
+		).resolves.toEqual(serializedMintOperation("mint-op-1", "finalized", "9"));
+		await expect(
+			handlers.managerMintOpsGet({ operationId: "mint-op-1" }),
+		).resolves.toEqual(serializedMintOperation("mint-op-1", "pending", "10"));
+		await expect(
+			handlers.managerMintOpsListByQuote({
+				mintUrl: "https://mint.example",
+				quoteId: "quote-1",
+			}),
+		).resolves.toEqual([
+			serializedMintOperation("mint-op-1", "pending", "11"),
+		]);
+		await expect(handlers.managerMintOpsListPending()).resolves.toEqual([
+			serializedMintOperation("mint-op-1", "pending", "12"),
+		]);
+		await expect(handlers.managerMintOpsListInFlight()).resolves.toEqual([
+			serializedMintOperation("mint-op-1", "executing", "13"),
+		]);
 
 		expect(calls).toEqual([
 			["getAllMints"],
@@ -128,6 +179,31 @@ describe("manager RPC handlers", () => {
 				},
 			],
 			["getPaginatedHistory", 10, 5],
+			[
+				"mintOps.prepare",
+				{
+					quote: {
+						mintUrl: "https://mint.example",
+						method: "bolt11",
+						quoteId: "quote-1",
+					},
+					amount: "5",
+				},
+			],
+			["mintOps.refresh", "mint-op-1"],
+			["mintOps.execute", "mint-op-1"],
+			["mintOps.checkPayment", "mint-op-1"],
+			["mintOps.finalize", "mint-op-1"],
+			["mintOps.get", "mint-op-1"],
+			[
+				"mintOps.listByQuote",
+				{
+					mintUrl: "https://mint.example",
+					quoteId: "quote-1",
+				},
+			],
+			["mintOps.listPending"],
+			["mintOps.listInFlight"],
 		]);
 	});
 
@@ -246,6 +322,58 @@ describe("manager RPC handlers", () => {
 		]);
 	});
 
+	it("forwards subscribed mint operation events with serialized amounts", async () => {
+		const calls: unknown[] = [];
+		const emitted: unknown[] = [];
+		const manager = createFakeManager(calls);
+		const forwarder = createManagerEventForwarder(
+			async () => manager,
+			(event) => emitted.push(event),
+		);
+
+		forwarder.subscribe({ event: "mint-op:pending" });
+		await Promise.resolve();
+
+		manager.emit("mint-op:pending", {
+			mintUrl: "https://mint.example",
+			operationId: "mint-op-1",
+			operation: rawMintOperation("mint-op-1", "pending", amountLike("21")),
+		});
+		forwarder.unsubscribe({ event: "mint-op:pending" });
+		manager.emit("mint-op:pending", {
+			mintUrl: "https://mint.example",
+			operationId: "mint-op-ignored",
+			operation: rawMintOperation("mint-op-ignored", "pending", amountLike("1")),
+		});
+
+		expect(emitted).toEqual([
+			{
+				event: "mint-op:pending",
+				payload: {
+					mintUrl: "https://mint.example",
+					operationId: "mint-op-1",
+					operation: serializedMintOperation("mint-op-1", "pending", "21"),
+				},
+			},
+		]);
+		expect(calls).toEqual([
+			["on", "mint-op:pending"],
+			["off", "mint-op:pending"],
+		]);
+	});
+
+	it("surfaces manager mint operation errors through rejected handlers", async () => {
+		const manager = createFakeManager([]);
+		manager.ops.mint.finalize = async () => {
+			throw new Error("Mint quote expired");
+		};
+		const handlers = createManagerRpcRequestHandlers(async () => manager);
+
+		await expect(
+			handlers.managerMintOpsFinalize({ operationId: "mint-op-1" }),
+		).rejects.toThrow("Mint quote expired");
+	});
+
 	it("keeps one manager event subscription for multiple renderer listeners", async () => {
 		const calls: unknown[] = [];
 		const emitted: unknown[] = [];
@@ -340,6 +468,59 @@ function createFakeManager(calls: unknown[]) {
 			getPaginatedHistory: async (offset?: number, limit?: number) => {
 				calls.push(["getPaginatedHistory", offset, limit]);
 				return [rawHistoryEntry("history-1", 123n)];
+			},
+		},
+		ops: {
+			mint: {
+				prepare: async (input: unknown) => {
+					calls.push(["mintOps.prepare", input]);
+					return rawMintOperation("mint-op-1", "pending", amountLike("5"));
+				},
+				refresh: async (operationId: string) => {
+					calls.push(["mintOps.refresh", operationId]);
+					return rawMintOperation("mint-op-1", "pending", amountLike("6"));
+				},
+				execute: async (operationOrId: unknown) => {
+					calls.push(["mintOps.execute", operationOrId]);
+					return rawMintOperation("mint-op-1", "executing", amountLike("7"));
+				},
+				checkPayment: async (operationId: string) => {
+					calls.push(["mintOps.checkPayment", operationId]);
+					return {
+						category: "ready",
+						observedRemoteState: "PAID",
+						observedRemoteStateAt: 12,
+						quoteSnapshot: {
+							amount: amountLike("8"),
+							quoteData: {
+								amountPaid: amountLike("8"),
+								amountIssued: amountLike("0"),
+							},
+						},
+					};
+				},
+				finalize: async (operationId: string) => {
+					calls.push(["mintOps.finalize", operationId]);
+					return rawMintOperation("mint-op-1", "finalized", amountLike("9"));
+				},
+				get: async (operationId: string) => {
+					calls.push(["mintOps.get", operationId]);
+					return rawMintOperation("mint-op-1", "pending", amountLike("10"));
+				},
+				listByQuote: async (params: unknown) => {
+					calls.push(["mintOps.listByQuote", params]);
+					return [rawMintOperation("mint-op-1", "pending", amountLike("11"))];
+				},
+				listPending: async () => {
+					calls.push(["mintOps.listPending"]);
+					return [rawMintOperation("mint-op-1", "pending", amountLike("12"))];
+				},
+				listInFlight: async () => {
+					calls.push(["mintOps.listInFlight"]);
+					return [
+						rawMintOperation("mint-op-1", "executing", amountLike("13")),
+					];
+				},
 			},
 		},
 		on<TEventName extends ManagerEventName>(
@@ -476,6 +657,46 @@ function serializedHistoryEntry(
 		token: { token: [{ mint: "https://mint.example", proofs: [] }] },
 		createdAt: 10,
 		updatedAt: 11,
+	};
+}
+
+function rawMintOperation(
+	id: string,
+	state: string,
+	amount: unknown,
+) {
+	return {
+		id,
+		mintUrl: "https://mint.example",
+		method: "bolt11",
+		state,
+		amount,
+		unit: "sat",
+		quoteId: "quote-1",
+		request: "lnbc1...",
+		expiry: null,
+		createdAt: 20,
+		updatedAt: 21,
+	};
+}
+
+function serializedMintOperation(
+	id: string,
+	state: string,
+	amount: string,
+): ManagerMintOperationDto {
+	return {
+		id,
+		mintUrl: "https://mint.example",
+		method: "bolt11",
+		state,
+		amount,
+		unit: "sat",
+		quoteId: "quote-1",
+		request: "lnbc1...",
+		expiry: null,
+		createdAt: 20,
+		updatedAt: 21,
 	};
 }
 

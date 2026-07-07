@@ -13,8 +13,13 @@ import type {
 	ManagerKeysetDto,
 	ManagerMintDto,
 	ManagerEventSubscriptionDto,
+	ManagerMintOperationDto,
+	ManagerMintOperationIdParams,
+	ManagerMintOperationListByQuoteParams,
+	ManagerMintOperationPrepareParams,
 	ManagerMintUrlParams,
 	ManagerMintWithKeysetsDto,
+	ManagerPendingMintCheckResultDto,
 	ManagerProofDto,
 } from "../mainview/lib/manager-rpc.ts";
 
@@ -90,12 +95,61 @@ type ManagerHistoryApiLike = {
 	) => Promise<ManagerHistoryEntryLike[]>;
 };
 
+type ManagerMintOperationLike = {
+	id: string;
+	mintUrl: string;
+	method?: string;
+	state: string;
+	amount?: unknown;
+	unit?: string;
+	quoteId?: string;
+	request?: string;
+	expiry?: number | null;
+	error?: string;
+	createdAt: number;
+	updatedAt: number;
+};
+
+type ManagerPendingMintCheckResultLike = {
+	observedRemoteState?: unknown;
+	observedRemoteStateAt: number;
+	quoteSnapshot?: object;
+	category: string;
+	terminalFailure?: {
+		reason: string;
+		code?: string;
+		retryable?: boolean;
+		observedAt: number;
+	};
+};
+
+type ManagerMintOpsApiLike = {
+	prepare: (
+		input: ManagerMintOperationPrepareParams,
+	) => Promise<ManagerMintOperationLike>;
+	refresh: (operationId: string) => Promise<ManagerMintOperationLike>;
+	execute: (operationId: string) => Promise<ManagerMintOperationLike>;
+	checkPayment: (
+		operationId: string,
+	) => Promise<ManagerPendingMintCheckResultLike>;
+	finalize: (operationId: string) => Promise<ManagerMintOperationLike>;
+	get: (operationId: string) => Promise<ManagerMintOperationLike | null>;
+	listByQuote: (
+		params: ManagerMintOperationListByQuoteParams,
+	) => Promise<ManagerMintOperationLike[]>;
+	listPending: () => Promise<ManagerMintOperationLike[]>;
+	listInFlight: () => Promise<ManagerMintOperationLike[]>;
+};
+
 export type ManagerRpcManagerLike = {
 	mint: ManagerMintApiLike;
 	wallet: {
 		balances: ManagerWalletBalancesApiLike;
 	};
 	history: ManagerHistoryApiLike;
+	ops: {
+		mint: ManagerMintOpsApiLike;
+	};
 	on: <TEventName extends ManagerEventName>(
 		event: TEventName,
 		handler: (payload: unknown) => void,
@@ -128,6 +182,29 @@ type ManagerRpcRequestHandlers = {
 	managerHistoryGetPaginatedHistory: (
 		params: ManagerHistoryPaginationParams,
 	) => Promise<ManagerHistoryEntryDto[]>;
+	managerMintOpsPrepare: (
+		params: ManagerMintOperationPrepareParams,
+	) => Promise<ManagerMintOperationDto>;
+	managerMintOpsRefresh: (
+		params: ManagerMintOperationIdParams,
+	) => Promise<ManagerMintOperationDto>;
+	managerMintOpsExecute: (
+		params: ManagerMintOperationIdParams,
+	) => Promise<ManagerMintOperationDto>;
+	managerMintOpsCheckPayment: (
+		params: ManagerMintOperationIdParams,
+	) => Promise<ManagerPendingMintCheckResultDto>;
+	managerMintOpsFinalize: (
+		params: ManagerMintOperationIdParams,
+	) => Promise<ManagerMintOperationDto>;
+	managerMintOpsGet: (
+		params: ManagerMintOperationIdParams,
+	) => Promise<ManagerMintOperationDto | null>;
+	managerMintOpsListByQuote: (
+		params: ManagerMintOperationListByQuoteParams,
+	) => Promise<ManagerMintOperationDto[]>;
+	managerMintOpsListPending: () => Promise<ManagerMintOperationDto[]>;
+	managerMintOpsListInFlight: () => Promise<ManagerMintOperationDto[]>;
 };
 
 export function createManagerRpcRequestHandlers(
@@ -191,6 +268,55 @@ export function createManagerRpcRequestHandlers(
 			const manager = await getManager();
 			const entries = await manager.history.getPaginatedHistory(offset, limit);
 			return entries.map(serializeHistoryEntry);
+		},
+		managerMintOpsPrepare: async (params) => {
+			const manager = await getManager();
+			return serializeMintOperation(await manager.ops.mint.prepare(params));
+		},
+		managerMintOpsRefresh: async ({ operationId }) => {
+			const manager = await getManager();
+			return serializeMintOperation(
+				await manager.ops.mint.refresh(operationId),
+			);
+		},
+		managerMintOpsExecute: async ({ operationId }) => {
+			const manager = await getManager();
+			return serializeMintOperation(
+				await manager.ops.mint.execute(operationId),
+			);
+		},
+		managerMintOpsCheckPayment: async ({ operationId }) => {
+			const manager = await getManager();
+			return serializePendingMintCheckResult(
+				await manager.ops.mint.checkPayment(operationId),
+			);
+		},
+		managerMintOpsFinalize: async ({ operationId }) => {
+			const manager = await getManager();
+			return serializeMintOperation(
+				await manager.ops.mint.finalize(operationId),
+			);
+		},
+		managerMintOpsGet: async ({ operationId }) => {
+			const manager = await getManager();
+			const operation = await manager.ops.mint.get(operationId);
+			return operation ? serializeMintOperation(operation) : null;
+		},
+		managerMintOpsListByQuote: async (params) => {
+			const manager = await getManager();
+			return (await manager.ops.mint.listByQuote(params)).map(
+				serializeMintOperation,
+			);
+		},
+		managerMintOpsListPending: async () => {
+			const manager = await getManager();
+			return (await manager.ops.mint.listPending()).map(serializeMintOperation);
+		},
+		managerMintOpsListInFlight: async () => {
+			const manager = await getManager();
+			return (await manager.ops.mint.listInFlight()).map(
+				serializeMintOperation,
+			);
 		},
 	};
 }
@@ -296,6 +422,27 @@ function serializeManagerEvent<TEventName extends ManagerEventName>(
 			payload: {
 				mintUrl: historyPayload.mintUrl,
 				entry: serializeHistoryEntry(historyPayload.entry),
+			},
+		} as ManagerEventDto<TEventName>;
+	}
+
+	if (
+		event === "mint-op:pending" ||
+		event === "mint-op:executing" ||
+		event === "mint-op:finalized" ||
+		event === "mint-op:requeue"
+	) {
+		const operationPayload = payload as {
+			mintUrl: string;
+			operationId: string;
+			operation: ManagerMintOperationLike;
+		};
+		return {
+			event,
+			payload: {
+				mintUrl: operationPayload.mintUrl,
+				operationId: operationPayload.operationId,
+				operation: serializeMintOperation(operationPayload.operation),
 			},
 		} as ManagerEventDto<TEventName>;
 	}
@@ -425,6 +572,66 @@ function serializeHistoryEntry(entry: ManagerHistoryEntryLike): ManagerHistoryEn
 		remoteState: entry.remoteState,
 		token: entry.token,
 	};
+}
+
+function serializeMintOperation(
+	operation: ManagerMintOperationLike,
+): ManagerMintOperationDto {
+	return serializeAmountFields(operation) as ManagerMintOperationDto;
+}
+
+function serializePendingMintCheckResult(
+	result: ManagerPendingMintCheckResultLike,
+): ManagerPendingMintCheckResultDto {
+	return serializeAmountFields(result) as ManagerPendingMintCheckResultDto;
+}
+
+const AMOUNT_FIELD_NAMES = new Set([
+	"amount",
+	"amountIssued",
+	"amountPaid",
+	"fee",
+	"feeReserve",
+	"fee_reserve",
+	"inputAmount",
+	"swap_fee",
+]);
+
+function serializeAmountFields(input: unknown): unknown {
+	if (Array.isArray(input)) {
+		return input.map(serializeAmountFields);
+	}
+
+	if (!input || typeof input !== "object") {
+		return input;
+	}
+
+	return Object.fromEntries(
+		Object.entries(input).map(([key, value]) => {
+			if (AMOUNT_FIELD_NAMES.has(key) && value !== undefined && value !== null) {
+				return [key, serializeAmountFieldValue(value)];
+			}
+
+			return [key, serializeAmountFields(value)];
+		}),
+	);
+}
+
+function serializeAmountFieldValue(value: unknown): unknown {
+	if (isUnitAmountRecord(value)) {
+		return serializeAmountFields(value);
+	}
+
+	return serializeAmount(value);
+}
+
+function isUnitAmountRecord(value: unknown): value is { amount: unknown; unit: unknown } {
+	return (
+		!!value &&
+		typeof value === "object" &&
+		"amount" in value &&
+		"unit" in value
+	);
 }
 
 function serializeAmount(input: unknown): string {

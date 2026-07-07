@@ -15,21 +15,51 @@ import type {
 	ManagerEventSubscriptionDto,
 	ManagerMintUrlParams,
 	ManagerMintWithKeysetsDto,
+	ManagerMintOperationDto,
+	ManagerMintOperationIdParams,
+	ManagerMintOperationListByQuoteParams,
+	ManagerMintOperationPrepareParams,
+	ManagerPendingMintCheckResultDto,
 } from "@/lib/manager-rpc";
 
 type RemoteManagerEventPayloads = Omit<
 	ManagerEventPayloads,
-	"history:updated"
+	"history:updated" | "mint-op:pending" | "mint-op:executing" | "mint-op:finalized" | "mint-op:requeue"
 > & {
 	"history:updated": {
 		mintUrl: string;
 		entry: HistoryEntry;
 	};
+	"mint-op:pending": ManagerMintOperationEventPayload;
+	"mint-op:executing": ManagerMintOperationEventPayload;
+	"mint-op:finalized": ManagerMintOperationEventPayload;
+	"mint-op:requeue": ManagerMintOperationEventPayload;
 };
 
 type ManagerEventHandler<TEventName extends ManagerEventName> = (
 	payload: RemoteManagerEventPayloads[TEventName],
 ) => void | Promise<void>;
+
+type MintOperationLike = {
+	id: string;
+	mintUrl: string;
+	method: string;
+	state: string;
+	amount?: Amount;
+	unit?: string;
+	quoteId?: string;
+	request?: string;
+	expiry?: number | null;
+	error?: string;
+	createdAt: number;
+	updatedAt: number;
+};
+
+type ManagerMintOperationEventPayload = {
+	mintUrl: string;
+	operationId: string;
+	operation: MintOperationLike;
+};
 
 type RemoteManagerRpc = {
 	request: {
@@ -58,6 +88,29 @@ type RemoteManagerRpc = {
 		managerHistoryGetPaginatedHistory: (
 			params: ManagerHistoryPaginationParams,
 		) => Promise<ManagerHistoryEntryDto[]>;
+		managerMintOpsPrepare: (
+			params: ManagerMintOperationPrepareParams,
+		) => Promise<ManagerMintOperationDto>;
+		managerMintOpsRefresh: (
+			params: ManagerMintOperationIdParams,
+		) => Promise<ManagerMintOperationDto>;
+		managerMintOpsExecute: (
+			params: ManagerMintOperationIdParams,
+		) => Promise<ManagerMintOperationDto>;
+		managerMintOpsCheckPayment: (
+			params: ManagerMintOperationIdParams,
+		) => Promise<ManagerPendingMintCheckResultDto>;
+		managerMintOpsFinalize: (
+			params: ManagerMintOperationIdParams,
+		) => Promise<ManagerMintOperationDto>;
+		managerMintOpsGet: (
+			params: ManagerMintOperationIdParams,
+		) => Promise<ManagerMintOperationDto | null>;
+		managerMintOpsListByQuote: (
+			params: ManagerMintOperationListByQuoteParams,
+		) => Promise<ManagerMintOperationDto[]>;
+		managerMintOpsListPending: () => Promise<ManagerMintOperationDto[]>;
+		managerMintOpsListInFlight: () => Promise<ManagerMintOperationDto[]>;
 	};
 	send: {
 		managerEventSubscribe: (payload: ManagerEventSubscriptionDto) => void;
@@ -126,6 +179,57 @@ class RemoteCocoManager {
 				});
 			return entries.map(rehydrateHistoryEntry);
 		},
+	});
+
+	readonly ops = unsupportedAwareObject("Remote Coco manager ops API", {
+		mint: unsupportedAwareObject("Remote Coco manager mint operations API", {
+			prepare: async (input: ManagerMintOperationPrepareParams) =>
+				rehydrateMintOperation(
+					await this.rpc.request.managerMintOpsPrepare({
+						quote: input.quote,
+						amount: stringifyAmount(input.amount),
+					}),
+				),
+			refresh: async (operationId: string) =>
+				rehydrateMintOperation(
+					await this.rpc.request.managerMintOpsRefresh({ operationId }),
+				),
+			execute: async (operationOrId: MintOperationLike | string) =>
+				rehydrateMintOperation(
+					await this.rpc.request.managerMintOpsExecute({
+						operationId:
+							typeof operationOrId === "string" ? operationOrId : operationOrId.id,
+					}),
+				),
+			checkPayment: async (operationId: string) =>
+				rehydrateAmountFields(
+					await this.rpc.request.managerMintOpsCheckPayment({
+						operationId,
+					}),
+				),
+			finalize: async (operationId: string) =>
+				rehydrateMintOperation(
+					await this.rpc.request.managerMintOpsFinalize({ operationId }),
+				),
+			get: async (operationId: string) => {
+				const operation = await this.rpc.request.managerMintOpsGet({
+					operationId,
+				});
+				return operation ? rehydrateMintOperation(operation) : null;
+			},
+			listByQuote: async (params: ManagerMintOperationListByQuoteParams) =>
+				(
+					await this.rpc.request.managerMintOpsListByQuote(params)
+				).map(rehydrateMintOperation),
+			listPending: async () =>
+				(
+					await this.rpc.request.managerMintOpsListPending()
+				).map(rehydrateMintOperation),
+			listInFlight: async () =>
+				(
+					await this.rpc.request.managerMintOpsListInFlight()
+				).map(rehydrateMintOperation),
+		}),
 	});
 
 	constructor(private readonly rpc: RemoteManagerRpc) {}
@@ -197,7 +301,7 @@ class RemoteCocoManager {
 
 export function createRemoteCocoManager(rpc: RemoteManagerRpc): Manager {
 	return unsupportedAwareObject("Remote Coco manager", new RemoteCocoManager(rpc), {
-		allowProperties: new Set(["mint", "wallet", "history", "on", "off"]),
+		allowProperties: new Set(["mint", "wallet", "history", "ops", "on", "off"]),
 	}) as unknown as Manager;
 }
 
@@ -272,6 +376,18 @@ function rehydrateManagerEventPayload(event: ManagerEventDto) {
 		};
 	}
 
+	if (
+		event.event === "mint-op:pending" ||
+		event.event === "mint-op:executing" ||
+		event.event === "mint-op:finalized" ||
+		event.event === "mint-op:requeue"
+	) {
+		return {
+			...event.payload,
+			operation: rehydrateMintOperation(event.payload.operation),
+		};
+	}
+
 	return event.payload;
 }
 
@@ -280,6 +396,76 @@ function rehydrateHistoryEntry(entry: ManagerHistoryEntryDto): HistoryEntry {
 		...entry,
 		amount: Amount.from(entry.amount),
 	} as HistoryEntry;
+}
+
+function rehydrateMintOperation(
+	operation: ManagerMintOperationDto,
+): MintOperationLike {
+	return rehydrateAmountFields(operation) as MintOperationLike;
+}
+
+const AMOUNT_FIELD_NAMES = new Set([
+	"amount",
+	"amountIssued",
+	"amountPaid",
+	"fee",
+	"feeReserve",
+	"fee_reserve",
+	"inputAmount",
+	"swap_fee",
+]);
+
+function rehydrateAmountFields(input: unknown): unknown {
+	if (Array.isArray(input)) {
+		return input.map(rehydrateAmountFields);
+	}
+
+	if (!input || typeof input !== "object") {
+		return input;
+	}
+
+	return Object.fromEntries(
+		Object.entries(input).map(([key, value]) => {
+			if (
+				AMOUNT_FIELD_NAMES.has(key) &&
+				typeof value === "string" &&
+				value.length > 0
+			) {
+				return [key, Amount.from(value)];
+			}
+
+			return [key, rehydrateAmountFields(value)];
+		}),
+	);
+}
+
+function stringifyAmount(input: unknown): string {
+	if (typeof input === "string") {
+		return input;
+	}
+	if (typeof input === "number" || typeof input === "bigint") {
+		return input.toString();
+	}
+	if (input && typeof input === "object") {
+		if ("toJSON" in input && typeof input.toJSON === "function") {
+			const jsonValue = input.toJSON();
+			if (
+				typeof jsonValue === "string" ||
+				typeof jsonValue === "number" ||
+				typeof jsonValue === "bigint"
+			) {
+				return jsonValue.toString();
+			}
+		}
+		if ("toString" in input && typeof input.toString === "function") {
+			const stringValue = input.toString();
+			if (stringValue !== "[object Object]") {
+				return stringValue;
+			}
+		}
+	}
+
+	throw new Error("Cannot serialize mint operation amount value.");
 }
 
 function unsupportedAwareObject<TTarget extends object>(
