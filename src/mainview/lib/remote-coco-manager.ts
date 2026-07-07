@@ -15,17 +15,49 @@ import type {
 	ManagerEventSubscriptionDto,
 	ManagerMintUrlParams,
 	ManagerMintWithKeysetsDto,
+	ManagerSendExecuteParams,
+	ManagerSendExecuteResultDto,
+	ManagerSendOperationDto,
+	ManagerSendOperationIdParams,
+	ManagerSendPrepareParams,
 } from "@/lib/manager-rpc";
 
 type RemoteManagerEventPayloads = Omit<
 	ManagerEventPayloads,
-	"history:updated"
+	"history:updated" | ManagerSendOperationEventName
 > & {
 	"history:updated": {
 		mintUrl: string;
 		entry: HistoryEntry;
 	};
+	"send:prepared": {
+		mintUrl: string;
+		operationId: string;
+		operation: RemoteSendOperation;
+	};
+	"send:pending": {
+		mintUrl: string;
+		operationId: string;
+		operation: RemoteSendOperation;
+		token: unknown;
+	};
+	"send:finalized": {
+		mintUrl: string;
+		operationId: string;
+		operation: RemoteSendOperation;
+	};
+	"send:rolled-back": {
+		mintUrl: string;
+		operationId: string;
+		operation: RemoteSendOperation;
+	};
 };
+
+type ManagerSendOperationEventName =
+	| "send:prepared"
+	| "send:pending"
+	| "send:finalized"
+	| "send:rolled-back";
 
 type ManagerEventHandler<TEventName extends ManagerEventName> = (
 	payload: RemoteManagerEventPayloads[TEventName],
@@ -58,6 +90,23 @@ type RemoteManagerRpc = {
 		managerHistoryGetPaginatedHistory: (
 			params: ManagerHistoryPaginationParams,
 		) => Promise<ManagerHistoryEntryDto[]>;
+		managerSendPrepare: (
+			params: ManagerSendPrepareParams,
+		) => Promise<ManagerSendOperationDto>;
+		managerSendExecute: (
+			params: ManagerSendExecuteParams,
+		) => Promise<ManagerSendExecuteResultDto>;
+		managerSendGet: (
+			params: ManagerSendOperationIdParams,
+		) => Promise<ManagerSendOperationDto | null>;
+		managerSendListPrepared: () => Promise<ManagerSendOperationDto[]>;
+		managerSendListInFlight: () => Promise<ManagerSendOperationDto[]>;
+		managerSendRefresh: (
+			params: ManagerSendOperationIdParams,
+		) => Promise<ManagerSendOperationDto>;
+		managerSendCancel: (params: ManagerSendOperationIdParams) => Promise<void>;
+		managerSendReclaim: (params: ManagerSendOperationIdParams) => Promise<void>;
+		managerSendFinalize: (params: ManagerSendOperationIdParams) => Promise<void>;
 	};
 	send: {
 		managerEventSubscribe: (payload: ManagerEventSubscriptionDto) => void;
@@ -126,6 +175,52 @@ class RemoteCocoManager {
 				});
 			return entries.map(rehydrateHistoryEntry);
 		},
+	});
+
+	readonly ops = unsupportedAwareObject("Remote Coco manager operations API", {
+		send: unsupportedAwareObject("Remote Coco manager send operations API", {
+			prepare: async (input: RemotePrepareSendInput) =>
+				rehydrateSendOperation(
+					await this.rpc.request.managerSendPrepare(
+						serializePrepareSendInput(input),
+					),
+				),
+			execute: async (
+				operationOrId: RemoteSendOperation | string,
+				options?: { memo?: string },
+			) => {
+				const result = await this.rpc.request.managerSendExecute({
+					operationId: getOperationId(operationOrId),
+					options,
+				});
+				return {
+					operation: rehydrateSendOperation(result.operation),
+					token: result.token,
+				};
+			},
+			get: async (operationId: string) => {
+				const operation = await this.rpc.request.managerSendGet({ operationId });
+				return operation ? rehydrateSendOperation(operation) : null;
+			},
+			listPrepared: async () => {
+				const operations = await this.rpc.request.managerSendListPrepared();
+				return operations.map(rehydrateSendOperation);
+			},
+			listInFlight: async () => {
+				const operations = await this.rpc.request.managerSendListInFlight();
+				return operations.map(rehydrateSendOperation);
+			},
+			refresh: async (operationId: string) =>
+				rehydrateSendOperation(
+					await this.rpc.request.managerSendRefresh({ operationId }),
+				),
+			cancel: (operationId: string) =>
+				this.rpc.request.managerSendCancel({ operationId }),
+			reclaim: (operationId: string) =>
+				this.rpc.request.managerSendReclaim({ operationId }),
+			finalize: (operationId: string) =>
+				this.rpc.request.managerSendFinalize({ operationId }),
+		}),
 	});
 
 	constructor(private readonly rpc: RemoteManagerRpc) {}
@@ -197,7 +292,7 @@ class RemoteCocoManager {
 
 export function createRemoteCocoManager(rpc: RemoteManagerRpc): Manager {
 	return unsupportedAwareObject("Remote Coco manager", new RemoteCocoManager(rpc), {
-		allowProperties: new Set(["mint", "wallet", "history", "on", "off"]),
+		allowProperties: new Set(["mint", "wallet", "history", "ops", "on", "off"]),
 	}) as unknown as Manager;
 }
 
@@ -272,6 +367,24 @@ function rehydrateManagerEventPayload(event: ManagerEventDto) {
 		};
 	}
 
+	if (
+		event.event === "send:prepared" ||
+		event.event === "send:finalized" ||
+		event.event === "send:rolled-back"
+	) {
+		return {
+			...event.payload,
+			operation: rehydrateSendOperation(event.payload.operation),
+		};
+	}
+
+	if (event.event === "send:pending") {
+		return {
+			...event.payload,
+			operation: rehydrateSendOperation(event.payload.operation),
+		};
+	}
+
 	return event.payload;
 }
 
@@ -280,6 +393,88 @@ function rehydrateHistoryEntry(entry: ManagerHistoryEntryDto): HistoryEntry {
 		...entry,
 		amount: Amount.from(entry.amount),
 	} as HistoryEntry;
+}
+
+type RemoteSendOperation = Omit<
+	ManagerSendOperationDto,
+	"amount" | "fee" | "inputAmount"
+> & {
+	amount: Amount;
+	fee?: Amount;
+	inputAmount?: Amount;
+};
+
+type RemotePrepareSendInput = {
+	mintUrl: string;
+	amount: AmountInput;
+	unit?: string;
+	target?: unknown;
+};
+
+type AmountInput =
+	| string
+	| number
+	| bigint
+	| {
+			amount?: string | number | bigint | { toString: () => string };
+			unit?: string;
+			toString?: () => string;
+	  };
+
+function serializePrepareSendInput(
+	input: RemotePrepareSendInput,
+): ManagerSendPrepareParams {
+	const amount = serializeAmountInput(input.amount);
+	const amountUnit =
+		typeof input.amount === "object" && input.amount !== null
+			? input.amount.unit
+			: undefined;
+
+	return {
+		mintUrl: input.mintUrl,
+		amount,
+		unit: input.unit ?? amountUnit,
+		target: input.target,
+	};
+}
+
+function serializeAmountInput(input: AmountInput): string {
+	if (typeof input === "string") {
+		return input;
+	}
+
+	if (typeof input === "number" || typeof input === "bigint") {
+		return input.toString();
+	}
+
+	if (input.amount !== undefined) {
+		return serializeAmountInput(input.amount);
+	}
+
+	if (typeof input.toString === "function") {
+		return input.toString();
+	}
+
+	throw new Error("Cannot serialize remote manager amount input.");
+}
+
+function getOperationId(operationOrId: RemoteSendOperation | string): string {
+	return typeof operationOrId === "string" ? operationOrId : operationOrId.id;
+}
+
+function rehydrateSendOperation(
+	operation: ManagerSendOperationDto,
+): RemoteSendOperation {
+	return {
+		...operation,
+		amount: Amount.from(operation.amount),
+		fee:
+			operation.fee === undefined ? undefined : Amount.from(operation.fee),
+		inputAmount:
+			operation.inputAmount === undefined
+				? undefined
+				: Amount.from(operation.inputAmount),
+	};
 }
 
 function unsupportedAwareObject<TTarget extends object>(

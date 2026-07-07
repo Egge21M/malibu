@@ -33,10 +33,17 @@ export type ManagerHistoryType = "mint" | "melt" | "send" | "receive";
 
 export type ManagerHistoryEventName = "history:updated";
 
+export type ManagerSendOperationEventName =
+	| "send:prepared"
+	| "send:pending"
+	| "send:finalized"
+	| "send:rolled-back";
+
 export type ManagerEventName =
 	| ManagerMintEventName
 	| ManagerBalanceRefreshEventName
-	| ManagerHistoryEventName;
+	| ManagerHistoryEventName
+	| ManagerSendOperationEventName;
 
 export type ManagerMintWithKeysetsDto = {
 	mint: ManagerMintDto;
@@ -75,6 +82,34 @@ export type ManagerProofDto = Record<string, unknown> & {
 export type ManagerUnitAmountDto = {
 	amount: string;
 	unit: string;
+};
+
+export type ManagerSendOperationState =
+	| "init"
+	| "prepared"
+	| "executing"
+	| "pending"
+	| "finalized"
+	| "rolling_back"
+	| "rolled_back";
+
+export type ManagerSendOperationDto = {
+	id: string;
+	mintUrl: string;
+	amount: string;
+	unit: string;
+	method: string;
+	methodData: unknown;
+	state: ManagerSendOperationState;
+	createdAt: number;
+	updatedAt: number;
+	error?: string;
+	needsSwap?: boolean;
+	fee?: string;
+	inputAmount?: string;
+	inputProofSecrets?: string[];
+	outputData?: unknown;
+	token?: unknown;
 };
 
 export type ManagerHistoryEntryDto = {
@@ -126,6 +161,27 @@ export type ManagerEventPayloads = {
 		mintUrl: string;
 		entry: ManagerHistoryEntryDto;
 	};
+	"send:prepared": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerSendOperationDto;
+	};
+	"send:pending": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerSendOperationDto;
+		token: unknown;
+	};
+	"send:finalized": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerSendOperationDto;
+	};
+	"send:rolled-back": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerSendOperationDto;
+	};
 };
 
 export type ManagerEventSubscriptionDto = {
@@ -155,6 +211,28 @@ export type ManagerMintUrlParams = {
 export type ManagerHistoryPaginationParams = {
 	offset?: number;
 	limit?: number;
+};
+
+export type ManagerSendPrepareParams = {
+	mintUrl: string;
+	amount: string;
+	unit?: string;
+	target?: unknown;
+};
+
+export type ManagerSendOperationIdParams = {
+	operationId: string;
+};
+
+export type ManagerSendExecuteParams = ManagerSendOperationIdParams & {
+	options?: {
+		memo?: string;
+	};
+};
+
+export type ManagerSendExecuteResultDto = {
+	operation: ManagerSendOperationDto;
+	token: unknown;
 };
 
 export type ManagerRpcRequests = {
@@ -201,6 +279,42 @@ export type ManagerRpcRequests = {
 	managerHistoryGetPaginatedHistory: {
 		params: ManagerHistoryPaginationParams;
 		response: ManagerHistoryEntryDto[];
+	};
+	managerSendPrepare: {
+		params: ManagerSendPrepareParams;
+		response: ManagerSendOperationDto;
+	};
+	managerSendExecute: {
+		params: ManagerSendExecuteParams;
+		response: ManagerSendExecuteResultDto;
+	};
+	managerSendGet: {
+		params: ManagerSendOperationIdParams;
+		response: ManagerSendOperationDto | null;
+	};
+	managerSendListPrepared: {
+		params: undefined;
+		response: ManagerSendOperationDto[];
+	};
+	managerSendListInFlight: {
+		params: undefined;
+		response: ManagerSendOperationDto[];
+	};
+	managerSendRefresh: {
+		params: ManagerSendOperationIdParams;
+		response: ManagerSendOperationDto;
+	};
+	managerSendCancel: {
+		params: ManagerSendOperationIdParams;
+		response: void;
+	};
+	managerSendReclaim: {
+		params: ManagerSendOperationIdParams;
+		response: void;
+	};
+	managerSendFinalize: {
+		params: ManagerSendOperationIdParams;
+		response: void;
 	};
 };
 

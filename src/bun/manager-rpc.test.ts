@@ -7,6 +7,7 @@ import {
 import type {
 	ManagerEventName,
 	ManagerHistoryEntryDto,
+	ManagerSendOperationDto,
 } from "../mainview/lib/manager-rpc.ts";
 
 describe("manager RPC handlers", () => {
@@ -246,6 +247,125 @@ describe("manager RPC handlers", () => {
 		]);
 	});
 
+	it("maps send operation requests and preserves execution token payloads", async () => {
+		const calls: unknown[] = [];
+		const manager = createFakeManager(calls);
+		const handlers = createManagerRpcRequestHandlers(async () => manager);
+
+		await expect(
+			handlers.managerSendPrepare({
+				mintUrl: "https://mint.example",
+				amount: "21",
+				unit: "sat",
+				target: { pubkey: "02abc" },
+			}),
+		).resolves.toEqual(serializedSendOperation("send-1", "prepared"));
+		await expect(
+			handlers.managerSendExecute({
+				operationId: "send-1",
+				options: { memo: "for coffee" },
+			}),
+		).resolves.toEqual({
+			operation: serializedSendOperation("send-1", "pending", {
+				token: rawToken("send-1"),
+			}),
+			token: rawToken("send-1"),
+		});
+		await expect(
+			handlers.managerSendGet({ operationId: "send-1" }),
+		).resolves.toEqual(
+			serializedSendOperation("send-1", "pending", {
+				token: rawToken("send-1"),
+			}),
+		);
+		await expect(handlers.managerSendListPrepared()).resolves.toEqual([
+			serializedSendOperation("send-1", "prepared"),
+		]);
+		await expect(handlers.managerSendListInFlight()).resolves.toEqual([
+			serializedSendOperation("send-2", "pending", {
+				token: rawToken("send-2"),
+			}),
+		]);
+		await expect(
+			handlers.managerSendRefresh({ operationId: "send-1" }),
+		).resolves.toEqual(
+			serializedSendOperation("send-1", "finalized", {
+				token: rawToken("send-1"),
+			}),
+		);
+		await handlers.managerSendCancel({ operationId: "send-1" });
+		await handlers.managerSendReclaim({ operationId: "send-1" });
+		await handlers.managerSendFinalize({ operationId: "send-1" });
+
+		expect(calls).toEqual([
+			[
+				"send.prepare",
+				{
+					mintUrl: "https://mint.example",
+					amount: "21",
+					unit: "sat",
+					target: { pubkey: "02abc" },
+				},
+			],
+			["send.execute", "send-1", { memo: "for coffee" }],
+			["send.get", "send-1"],
+			["send.listPrepared"],
+			["send.listInFlight"],
+			["send.refresh", "send-1"],
+			["send.cancel", "send-1"],
+			["send.reclaim", "send-1"],
+			["send.finalize", "send-1"],
+		]);
+	});
+
+	it("forwards subscribed send lifecycle events with serialized operations", async () => {
+		const calls: unknown[] = [];
+		const emitted: unknown[] = [];
+		const manager = createFakeManager(calls);
+		const forwarder = createManagerEventForwarder(
+			async () => manager,
+			(event) => emitted.push(event),
+		);
+
+		forwarder.subscribe({ event: "send:pending" });
+		await Promise.resolve();
+
+		manager.emit("send:pending", {
+			mintUrl: "https://mint.example",
+			operationId: "send-1",
+			operation: rawSendOperation("send-1", "pending", {
+				token: rawToken("send-1"),
+			}),
+			token: rawToken("send-1"),
+		});
+		forwarder.unsubscribe({ event: "send:pending" });
+		manager.emit("send:pending", {
+			mintUrl: "https://mint.example",
+			operationId: "send-ignored",
+			operation: rawSendOperation("send-ignored", "pending"),
+			token: rawToken("send-ignored"),
+		});
+
+		expect(emitted).toEqual([
+			{
+				event: "send:pending",
+				payload: {
+					mintUrl: "https://mint.example",
+					operationId: "send-1",
+					operation: serializedSendOperation("send-1", "pending", {
+						token: rawToken("send-1"),
+					}),
+					token: rawToken("send-1"),
+				},
+			},
+		]);
+		expect(JSON.stringify(emitted)).toContain('"amount":"21"');
+		expect(calls).toEqual([
+			["on", "send:pending"],
+			["off", "send:pending"],
+		]);
+	});
+
 	it("keeps one manager event subscription for multiple renderer listeners", async () => {
 		const calls: unknown[] = [];
 		const emitted: unknown[] = [];
@@ -340,6 +460,56 @@ function createFakeManager(calls: unknown[]) {
 			getPaginatedHistory: async (offset?: number, limit?: number) => {
 				calls.push(["getPaginatedHistory", offset, limit]);
 				return [rawHistoryEntry("history-1", 123n)];
+			},
+		},
+		ops: {
+			send: {
+				prepare: async (input: unknown) => {
+					calls.push(["send.prepare", input]);
+					return rawSendOperation("send-1", "prepared");
+				},
+				execute: async (operationId: string, options?: unknown) => {
+					calls.push(["send.execute", operationId, options]);
+					return {
+						operation: rawSendOperation(operationId, "pending", {
+							token: rawToken(operationId),
+						}),
+						token: rawToken(operationId),
+					};
+				},
+				get: async (operationId: string) => {
+					calls.push(["send.get", operationId]);
+					return rawSendOperation(operationId, "pending", {
+						token: rawToken(operationId),
+					});
+				},
+				listPrepared: async () => {
+					calls.push(["send.listPrepared"]);
+					return [rawSendOperation("send-1", "prepared")];
+				},
+				listInFlight: async () => {
+					calls.push(["send.listInFlight"]);
+					return [
+						rawSendOperation("send-2", "pending", {
+							token: rawToken("send-2"),
+						}),
+					];
+				},
+				refresh: async (operationId: string) => {
+					calls.push(["send.refresh", operationId]);
+					return rawSendOperation(operationId, "finalized", {
+						token: rawToken(operationId),
+					});
+				},
+				cancel: async (operationId: string) => {
+					calls.push(["send.cancel", operationId]);
+				},
+				reclaim: async (operationId: string) => {
+					calls.push(["send.reclaim", operationId]);
+				},
+				finalize: async (operationId: string) => {
+					calls.push(["send.finalize", operationId]);
+				},
 			},
 		},
 		on<TEventName extends ManagerEventName>(
@@ -476,6 +646,65 @@ function serializedHistoryEntry(
 		token: { token: [{ mint: "https://mint.example", proofs: [] }] },
 		createdAt: 10,
 		updatedAt: 11,
+	};
+}
+
+function rawSendOperation(
+	id: string,
+	state: ManagerSendOperationDto["state"],
+	overrides: Record<string, unknown> = {},
+) {
+	return {
+		id,
+		mintUrl: "https://mint.example",
+		amount: amountLike("21"),
+		unit: "sat",
+		method: "default",
+		methodData: {},
+		state,
+		needsSwap: true,
+		fee: amountLike("1"),
+		inputAmount: amountLike("22"),
+		inputProofSecrets: ["secret-1"],
+		outputData: { outputs: [] },
+		createdAt: 12,
+		updatedAt: 13,
+		...overrides,
+	};
+}
+
+function serializedSendOperation(
+	id: string,
+	state: ManagerSendOperationDto["state"],
+	overrides: Partial<ManagerSendOperationDto> = {},
+): ManagerSendOperationDto {
+	return {
+		id,
+		mintUrl: "https://mint.example",
+		amount: "21",
+		unit: "sat",
+		method: "default",
+		methodData: {},
+		state,
+		needsSwap: true,
+		fee: "1",
+		inputAmount: "22",
+		inputProofSecrets: ["secret-1"],
+		outputData: { outputs: [] },
+		createdAt: 12,
+		updatedAt: 13,
+		...overrides,
+	};
+}
+
+function rawToken(operationId: string) {
+	return {
+		token: [
+			{
+				mint: "https://mint.example",
+				proofs: [{ id: operationId, amount: 21 }],
+			},
+		],
 	};
 }
 
