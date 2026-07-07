@@ -46,13 +46,6 @@ type RemoteMintManagerSurface = {
 	};
 	ops: {
 		send: {
-			recovery: {
-				run: () => Promise<void>;
-				inProgress: () => Promise<boolean>;
-			};
-			diagnostics: {
-				isLocked: (operationId: string) => Promise<boolean>;
-			};
 			prepare: (input: {
 				mintUrl: string;
 				amount: string | { amount: string; unit: string };
@@ -267,22 +260,6 @@ function createFakeRpc() {
 				managerSendFinalize: async (params: unknown) => {
 					calls.push(["managerSendFinalize", params]);
 				},
-				managerSendRecoveryRun: async () => {
-					calls.push(["managerSendRecoveryRun"]);
-				},
-				managerSendRecoveryInProgress: async () => {
-					calls.push(["managerSendRecoveryInProgress"]);
-					return true;
-				},
-				managerSendDiagnosticsIsLocked: async (params: unknown) => {
-					calls.push(["managerSendDiagnosticsIsLocked", params]);
-					return Boolean(
-						params &&
-						typeof params === "object" &&
-						"operationId" in params &&
-						params.operationId === "send-locked",
-					);
-				},
 			},
 			send: {
 				managerEventSubscribe: (params: unknown) => {
@@ -460,29 +437,6 @@ describe("createRemoteCocoManager", () => {
 			["managerSendCancel", { operationId: "send-1" }],
 			["managerSendReclaim", { operationId: "send-1" }],
 			["managerSendFinalize", { operationId: "send-1" }],
-		]);
-	});
-
-	it("forwards Coco React send recovery and diagnostics calls", async () => {
-		const fake = createFakeRpc();
-		const manager = createRemoteCocoManager(
-			fake.rpc,
-		) as unknown as RemoteMintManagerSurface;
-
-		await manager.ops.send.recovery.run();
-		await expect(manager.ops.send.recovery.inProgress()).resolves.toBe(true);
-		await expect(
-			manager.ops.send.diagnostics.isLocked("send-locked"),
-		).resolves.toBe(true);
-		await expect(
-			manager.ops.send.diagnostics.isLocked("send-open"),
-		).resolves.toBe(false);
-
-		expect(fake.calls).toEqual([
-			["managerSendRecoveryRun"],
-			["managerSendRecoveryInProgress"],
-			["managerSendDiagnosticsIsLocked", { operationId: "send-locked" }],
-			["managerSendDiagnosticsIsLocked", { operationId: "send-open" }],
 		]);
 	});
 
@@ -722,22 +676,6 @@ describe("createRemoteCocoManager", () => {
 				)["recover"],
 		).toThrow(
 			'Remote Coco manager send operations API does not support "recover" yet',
-		);
-		expect(
-			() =>
-				(
-					manager.ops.send.recovery as unknown as Record<string, unknown>
-				)["stop"],
-		).toThrow(
-			'Remote Coco manager send recovery API does not support "stop" yet',
-		);
-		expect(
-			() =>
-				(
-					manager.ops.send.diagnostics as unknown as Record<string, unknown>
-				)["locks"],
-		).toThrow(
-			'Remote Coco manager send diagnostics API does not support "locks" yet',
 		);
 	});
 });

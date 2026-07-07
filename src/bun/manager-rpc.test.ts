@@ -318,32 +318,6 @@ describe("manager RPC handlers", () => {
 		]);
 	});
 
-	it("maps send recovery and diagnostics requests", async () => {
-		const calls: unknown[] = [];
-		const manager = createFakeManager(calls);
-		const handlers = createManagerRpcRequestHandlers(async () => manager);
-
-		await handlers.managerSendRecoveryRun();
-		await expect(handlers.managerSendRecoveryInProgress()).resolves.toBe(true);
-		await expect(
-			handlers.managerSendDiagnosticsIsLocked({
-				operationId: "send-locked",
-			}),
-		).resolves.toBe(true);
-		await expect(
-			handlers.managerSendDiagnosticsIsLocked({
-				operationId: "send-open",
-			}),
-		).resolves.toBe(false);
-
-		expect(calls).toEqual([
-			["send.recovery.run"],
-			["send.recovery.inProgress"],
-			["send.diagnostics.isLocked", "send-locked"],
-			["send.diagnostics.isLocked", "send-open"],
-		]);
-	});
-
 	it("forwards subscribed send lifecycle events with serialized operations", async () => {
 		const calls: unknown[] = [];
 		const emitted: unknown[] = [];
@@ -490,21 +464,6 @@ function createFakeManager(calls: unknown[]) {
 		},
 		ops: {
 			send: {
-				recovery: {
-					run: async () => {
-						calls.push(["send.recovery.run"]);
-					},
-					inProgress: () => {
-						calls.push(["send.recovery.inProgress"]);
-						return true;
-					},
-				},
-				diagnostics: {
-					isLocked: (operationId: string) => {
-						calls.push(["send.diagnostics.isLocked", operationId]);
-						return operationId === "send-locked";
-					},
-				},
 				prepare: async (input: unknown) => {
 					calls.push(["send.prepare", input]);
 					return rawSendOperation("send-1", "prepared");

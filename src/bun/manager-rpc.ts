@@ -108,13 +108,6 @@ type ManagerSendOperationLike = Omit<
 };
 
 type ManagerSendApiLike = {
-	recovery: {
-		run: () => Promise<void>;
-		inProgress: () => boolean;
-	};
-	diagnostics: {
-		isLocked: (operationId: string) => boolean;
-	};
 	prepare: (input: ManagerSendPrepareInput) => Promise<ManagerSendOperationLike>;
 	execute: (
 		operationId: string,
@@ -190,11 +183,6 @@ type ManagerRpcRequestHandlers = {
 	managerSendCancel: (params: ManagerSendOperationIdParams) => Promise<void>;
 	managerSendReclaim: (params: ManagerSendOperationIdParams) => Promise<void>;
 	managerSendFinalize: (params: ManagerSendOperationIdParams) => Promise<void>;
-	managerSendRecoveryRun: () => Promise<void>;
-	managerSendRecoveryInProgress: () => Promise<boolean>;
-	managerSendDiagnosticsIsLocked: (
-		params: ManagerSendOperationIdParams,
-	) => Promise<boolean>;
 };
 
 export function createManagerRpcRequestHandlers(
@@ -308,18 +296,6 @@ export function createManagerRpcRequestHandlers(
 		managerSendFinalize: async ({ operationId }) => {
 			const manager = await getManager();
 			await manager.ops.send.finalize(operationId);
-		},
-		managerSendRecoveryRun: async () => {
-			const manager = await getManager();
-			await manager.ops.send.recovery.run();
-		},
-		managerSendRecoveryInProgress: async () => {
-			const manager = await getManager();
-			return manager.ops.send.recovery.inProgress();
-		},
-		managerSendDiagnosticsIsLocked: async ({ operationId }) => {
-			const manager = await getManager();
-			return manager.ops.send.diagnostics.isLocked(operationId);
 		},
 	};
 }

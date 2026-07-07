@@ -107,11 +107,6 @@ type RemoteManagerRpc = {
 		managerSendCancel: (params: ManagerSendOperationIdParams) => Promise<void>;
 		managerSendReclaim: (params: ManagerSendOperationIdParams) => Promise<void>;
 		managerSendFinalize: (params: ManagerSendOperationIdParams) => Promise<void>;
-		managerSendRecoveryRun: () => Promise<void>;
-		managerSendRecoveryInProgress: () => Promise<boolean>;
-		managerSendDiagnosticsIsLocked: (
-			params: ManagerSendOperationIdParams,
-		) => Promise<boolean>;
 	};
 	send: {
 		managerEventSubscribe: (payload: ManagerEventSubscriptionDto) => void;
@@ -184,18 +179,6 @@ class RemoteCocoManager {
 
 	readonly ops = unsupportedAwareObject("Remote Coco manager operations API", {
 		send: unsupportedAwareObject("Remote Coco manager send operations API", {
-			recovery: unsupportedAwareObject("Remote Coco manager send recovery API", {
-				run: () => this.rpc.request.managerSendRecoveryRun(),
-				inProgress: () =>
-					this.rpc.request.managerSendRecoveryInProgress(),
-			}),
-			diagnostics: unsupportedAwareObject(
-				"Remote Coco manager send diagnostics API",
-				{
-					isLocked: (operationId: string) =>
-						this.rpc.request.managerSendDiagnosticsIsLocked({ operationId }),
-				},
-			),
 			prepare: async (input: RemotePrepareSendInput) =>
 				rehydrateSendOperation(
 					await this.rpc.request.managerSendPrepare(
