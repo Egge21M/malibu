@@ -15,6 +15,7 @@
 		"build:canary": "bun run build && electrobun build --env=canary"
 	},
 	"dependencies": {
+		"@base-ui/react": "^1.6.0",
 		"@cashu/coco-core": "rc",
 		"@cashu/coco-react": "rc",
 		"@cashu/coco-sqlite-bun": "rc",
