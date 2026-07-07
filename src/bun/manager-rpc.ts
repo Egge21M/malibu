@@ -124,6 +124,13 @@ type ManagerPendingMintCheckResultLike = {
 };
 
 type ManagerMintOpsApiLike = {
+	recovery: {
+		run: () => Promise<void>;
+		inProgress: () => boolean;
+	};
+	diagnostics: {
+		isLocked: (operationId: string) => boolean;
+	};
 	prepare: (
 		input: ManagerMintOperationPrepareParams,
 	) => Promise<ManagerMintOperationLike>;
@@ -205,6 +212,11 @@ type ManagerRpcRequestHandlers = {
 	) => Promise<ManagerMintOperationDto[]>;
 	managerMintOpsListPending: () => Promise<ManagerMintOperationDto[]>;
 	managerMintOpsListInFlight: () => Promise<ManagerMintOperationDto[]>;
+	managerMintOpsRecoveryRun: () => Promise<void>;
+	managerMintOpsRecoveryInProgress: () => Promise<boolean>;
+	managerMintOpsDiagnosticsIsLocked: (
+		params: ManagerMintOperationIdParams,
+	) => Promise<boolean>;
 };
 
 export function createManagerRpcRequestHandlers(
@@ -317,6 +329,18 @@ export function createManagerRpcRequestHandlers(
 			return (await manager.ops.mint.listInFlight()).map(
 				serializeMintOperation,
 			);
+		},
+		managerMintOpsRecoveryRun: async () => {
+			const manager = await getManager();
+			await manager.ops.mint.recovery.run();
+		},
+		managerMintOpsRecoveryInProgress: async () => {
+			const manager = await getManager();
+			return manager.ops.mint.recovery.inProgress();
+		},
+		managerMintOpsDiagnosticsIsLocked: async ({ operationId }) => {
+			const manager = await getManager();
+			return manager.ops.mint.diagnostics.isLocked(operationId);
 		},
 	};
 }

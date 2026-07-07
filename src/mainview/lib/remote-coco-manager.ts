@@ -111,6 +111,11 @@ type RemoteManagerRpc = {
 		) => Promise<ManagerMintOperationDto[]>;
 		managerMintOpsListPending: () => Promise<ManagerMintOperationDto[]>;
 		managerMintOpsListInFlight: () => Promise<ManagerMintOperationDto[]>;
+		managerMintOpsRecoveryRun: () => Promise<void>;
+		managerMintOpsRecoveryInProgress: () => Promise<boolean>;
+		managerMintOpsDiagnosticsIsLocked: (
+			params: ManagerMintOperationIdParams,
+		) => Promise<boolean>;
 	};
 	send: {
 		managerEventSubscribe: (payload: ManagerEventSubscriptionDto) => void;
@@ -183,6 +188,23 @@ class RemoteCocoManager {
 
 	readonly ops = unsupportedAwareObject("Remote Coco manager ops API", {
 		mint: unsupportedAwareObject("Remote Coco manager mint operations API", {
+			recovery: unsupportedAwareObject(
+				"Remote Coco manager mint operation recovery API",
+				{
+					run: () => this.rpc.request.managerMintOpsRecoveryRun(),
+					inProgress: () =>
+						this.rpc.request.managerMintOpsRecoveryInProgress(),
+				},
+			),
+			diagnostics: unsupportedAwareObject(
+				"Remote Coco manager mint operation diagnostics API",
+				{
+					isLocked: (operationId: string) =>
+						this.rpc.request.managerMintOpsDiagnosticsIsLocked({
+							operationId,
+						}),
+				},
+			),
 			prepare: async (input: ManagerMintOperationPrepareParams) =>
 				rehydrateMintOperation(
 					await this.rpc.request.managerMintOpsPrepare({

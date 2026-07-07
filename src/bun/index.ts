@@ -106,6 +106,17 @@ const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 			managerMintOpsListInFlight: async () => {
 				return managerRpcRequestHandlers.managerMintOpsListInFlight();
 			},
+			managerMintOpsRecoveryRun: async () => {
+				return managerRpcRequestHandlers.managerMintOpsRecoveryRun();
+			},
+			managerMintOpsRecoveryInProgress: async () => {
+				return managerRpcRequestHandlers.managerMintOpsRecoveryInProgress();
+			},
+			managerMintOpsDiagnosticsIsLocked: async (params) => {
+				return managerRpcRequestHandlers.managerMintOpsDiagnosticsIsLocked(
+					params,
+				);
+			},
 			snapshot: () => walletService.snapshot(),
 			addMint: (params) => walletService.addMint(params),
 			restoreMint: (params) => walletService.restoreMint(params),
