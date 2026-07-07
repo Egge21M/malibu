@@ -7,6 +7,8 @@ import {
 import type {
 	ManagerEventName,
 	ManagerHistoryEntryDto,
+	ManagerMeltOperationDto,
+	ManagerMeltQuoteDto,
 	ManagerMintOperationDto,
 	ManagerPreparedReceiveOperationDto,
 	ManagerReceiveOperationDto,
@@ -589,6 +591,105 @@ describe("manager RPC handlers", () => {
 		]);
 	});
 
+	it("maps melt quote and operation requests with path-specific amount serialization", async () => {
+		const calls: unknown[] = [];
+		const manager = createFakeManager(calls);
+		const handlers = createManagerRpcRequestHandlers(async () => manager);
+		const quoteRef = { mintUrl: "https://mint.example", quoteId: "quote-1" };
+
+		await expect(
+			handlers.managerMeltQuoteCreate({
+				mintUrl: "https://mint.example",
+				method: "bolt11",
+				methodData: { request: "lnbc1...", amountSats: "55" },
+				unit: "sat",
+			}),
+		).resolves.toEqual(serializedMeltQuote("quote-1"));
+		await expect(handlers.managerMeltQuoteGet(quoteRef)).resolves.toEqual(
+			serializedMeltQuote("quote-1"),
+		);
+		await expect(
+			handlers.managerMeltQuoteListPending({ method: "bolt11" }),
+		).resolves.toEqual([serializedMeltQuote("quote-1")]);
+		await expect(handlers.managerMeltQuoteRefresh(quoteRef)).resolves.toEqual(
+			serializedMeltQuote("quote-1", { state: "PAID" }),
+		);
+		await expect(
+			handlers.managerMeltPrepare({
+				quote: { ...quoteRef, method: "bolt11" },
+			}),
+		).resolves.toEqual(serializedMeltOperation("melt-1", "prepared"));
+		await expect(
+			handlers.managerMeltExecute({ operationId: "melt-1" }),
+		).resolves.toEqual(serializedMeltOperation("melt-1", "pending"));
+		await expect(handlers.managerMeltGet({ operationId: "melt-1" })).resolves.toEqual(
+			serializedMeltOperation("melt-1", "pending"),
+		);
+		await expect(handlers.managerMeltGetByQuote(quoteRef)).resolves.toEqual(
+			serializedMeltOperation("melt-1", "pending"),
+		);
+		await expect(handlers.managerMeltListByQuote(quoteRef)).resolves.toEqual([
+			serializedMeltOperation("melt-1", "pending"),
+		]);
+		await expect(handlers.managerMeltListPrepared()).resolves.toEqual([
+			serializedMeltOperation("melt-1", "prepared"),
+		]);
+		await expect(handlers.managerMeltListInFlight()).resolves.toEqual([
+			serializedMeltOperation("melt-2", "pending"),
+		]);
+		await expect(
+			handlers.managerMeltRefresh({ operationId: "melt-1" }),
+		).resolves.toEqual(serializedMeltOperation("melt-1", "finalized"));
+		await handlers.managerMeltCancel({ operationId: "melt-1", reason: "user" });
+		await handlers.managerMeltReclaim({ operationId: "melt-1", reason: "retry" });
+		await handlers.managerMeltFinalize({ operationId: "melt-1" });
+
+		expect(
+			(
+				(await handlers.managerMeltGet({ operationId: "melt-1" }))
+					?.methodData as Record<string, unknown>
+			).changeOutputData,
+		).toEqual([{ blindedMessage: { amount: 123 } }]);
+		expect(calls).toContainEqual(["melt.cancel", "melt-1", "user"]);
+		expect(calls).toContainEqual(["melt.reclaim", "melt-1", "retry"]);
+		expect(calls).toContainEqual(["melt.finalize", "melt-1"]);
+	});
+
+	it("forwards subscribed melt lifecycle events with serialized operations", async () => {
+		const calls: unknown[] = [];
+		const emitted: unknown[] = [];
+		const manager = createFakeManager(calls);
+		const forwarder = createManagerEventForwarder(
+			async () => manager,
+			(event) => emitted.push(event),
+		);
+
+		forwarder.subscribe({ event: "melt-op:prepared" });
+		await Promise.resolve();
+
+		manager.emit("melt-op:prepared", {
+			mintUrl: "https://mint.example",
+			operationId: "melt-1",
+			operation: rawMeltOperation("melt-1", "prepared"),
+		});
+		forwarder.unsubscribe({ event: "melt-op:prepared" });
+
+		expect(emitted).toEqual([
+			{
+				event: "melt-op:prepared",
+				payload: {
+					mintUrl: "https://mint.example",
+					operationId: "melt-1",
+					operation: serializedMeltOperation("melt-1", "prepared"),
+				},
+			},
+		]);
+		expect(calls).toEqual([
+			["on", "melt-op:prepared"],
+			["off", "melt-op:prepared"],
+		]);
+	});
+
 	it("keeps one manager event subscription for multiple renderer listeners", async () => {
 		const calls: unknown[] = [];
 		const emitted: unknown[] = [];
@@ -679,13 +780,33 @@ function createFakeManager(calls: unknown[]) {
 				},
 			},
 		},
-		history: {
-			getPaginatedHistory: async (offset?: number, limit?: number) => {
-				calls.push(["getPaginatedHistory", offset, limit]);
-				return [rawHistoryEntry("history-1", 123n)];
+			history: {
+				getPaginatedHistory: async (offset?: number, limit?: number) => {
+					calls.push(["getPaginatedHistory", offset, limit]);
+					return [rawHistoryEntry("history-1", 123n)];
+				},
 			},
-		},
-		ops: {
+			quotes: {
+				melt: {
+					create: async (params: unknown) => {
+						calls.push(["meltQuote.create", params]);
+						return rawMeltQuote("quote-1");
+					},
+					get: async (params: unknown) => {
+						calls.push(["meltQuote.get", params]);
+						return rawMeltQuote("quote-1");
+					},
+					listPending: async (params?: unknown) => {
+						calls.push(["meltQuote.listPending", params]);
+						return [rawMeltQuote("quote-1")];
+					},
+					refresh: async (params: unknown) => {
+						calls.push(["meltQuote.refresh", params]);
+						return rawMeltQuote("quote-1", { state: "PAID" });
+					},
+				},
+			},
+			ops: {
 			mint: {
 				prepare: async (input: unknown) => {
 					calls.push(["mintOps.prepare", input]);
@@ -785,7 +906,7 @@ function createFakeManager(calls: unknown[]) {
 					calls.push(["send.finalize", operationId]);
 				},
 			},
-			receive: {
+				receive: {
 				prepare: async (params: unknown) => {
 					calls.push(["receive.prepare", params]);
 					return rawReceiveOperation("receive-1", "prepared", {
@@ -823,6 +944,49 @@ function createFakeManager(calls: unknown[]) {
 				listInFlight: async () => {
 					calls.push(["receive.listInFlight"]);
 					return [rawReceiveOperation("receive-2", "executing")];
+				},
+			},
+			melt: {
+				prepare: async (params: unknown) => {
+					calls.push(["melt.prepare", params]);
+					return rawMeltOperation("melt-1", "prepared");
+				},
+				execute: async (operationId: string) => {
+					calls.push(["melt.execute", operationId]);
+					return rawMeltOperation(operationId, "pending");
+				},
+				get: async (operationId: string) => {
+					calls.push(["melt.get", operationId]);
+					return rawMeltOperation(operationId, "pending");
+				},
+				getByQuote: async (params: unknown) => {
+					calls.push(["melt.getByQuote", params]);
+					return rawMeltOperation("melt-1", "pending");
+				},
+				listByQuote: async (params: unknown) => {
+					calls.push(["melt.listByQuote", params]);
+					return [rawMeltOperation("melt-1", "pending")];
+				},
+				listPrepared: async () => {
+					calls.push(["melt.listPrepared"]);
+					return [rawMeltOperation("melt-1", "prepared")];
+				},
+				listInFlight: async () => {
+					calls.push(["melt.listInFlight"]);
+					return [rawMeltOperation("melt-2", "pending")];
+				},
+				refresh: async (operationId: string) => {
+					calls.push(["melt.refresh", operationId]);
+					return rawMeltOperation(operationId, "finalized");
+				},
+				cancel: async (operationId: string, reason?: string) => {
+					calls.push(["melt.cancel", operationId, reason]);
+				},
+				reclaim: async (operationId: string, reason?: string) => {
+					calls.push(["melt.reclaim", operationId, reason]);
+				},
+				finalize: async (operationId: string) => {
+					calls.push(["melt.finalize", operationId]);
 				},
 			},
 		},
@@ -1117,6 +1281,114 @@ function serializedPreparedReceiveOperation(
 		outputData: { outputs: [] },
 		...overrides,
 		state: "prepared",
+	};
+}
+
+function rawMeltQuote(
+	quoteId: string,
+	overrides: Record<string, unknown> = {},
+) {
+	return {
+		mintUrl: "https://mint.example",
+		method: "bolt11",
+		quoteId,
+		request: "lnbc1...",
+		amount: amountLike("55"),
+		unit: "sat",
+		expiry: 123,
+		state: "UNPAID",
+		fee_reserve: amountLike("2"),
+		fee_options: [{ fee_reserve: amountLike("2"), label: "fast" }],
+		createdAt: 16,
+		updatedAt: 17,
+		...overrides,
+	};
+}
+
+function serializedMeltQuote(
+	quoteId: string,
+	overrides: Partial<ManagerMeltQuoteDto> = {},
+): ManagerMeltQuoteDto {
+	return {
+		mintUrl: "https://mint.example",
+		method: "bolt11",
+		quoteId,
+		request: "lnbc1...",
+		amount: "55",
+		unit: "sat",
+		expiry: 123,
+		state: "UNPAID",
+		fee_reserve: "2",
+		fee_options: [{ fee_reserve: "2", label: "fast" }],
+		createdAt: 16,
+		updatedAt: 17,
+		...overrides,
+	};
+}
+
+function rawMeltOperation(
+	id: string,
+	state: string,
+	overrides: Record<string, unknown> = {},
+) {
+	return {
+		id,
+		mintUrl: "https://mint.example",
+		method: "bolt11",
+		methodData: {
+			amountSats: amountLike("55"),
+			changeOutputData: [
+				{
+					blindedMessage: {
+						amount: 123,
+					},
+				},
+			],
+		},
+		unit: "sat",
+		state,
+		createdAt: 18,
+		updatedAt: 19,
+		amount: amountLike("55"),
+		fee_reserve: amountLike("2"),
+		swap_fee: amountLike("1"),
+		inputAmount: amountLike("56"),
+		changeAmount: amountLike("0"),
+		effectiveFee: amountLike("2"),
+		...overrides,
+	};
+}
+
+function serializedMeltOperation(
+	id: string,
+	state: string,
+	overrides: Partial<ManagerMeltOperationDto> = {},
+): ManagerMeltOperationDto {
+	return {
+		id,
+		mintUrl: "https://mint.example",
+		method: "bolt11",
+		methodData: {
+			amountSats: "55",
+			changeOutputData: [
+				{
+					blindedMessage: {
+						amount: 123,
+					},
+				},
+			],
+		},
+		unit: "sat",
+		state,
+		createdAt: 18,
+		updatedAt: 19,
+		amount: "55",
+		fee_reserve: "2",
+		swap_fee: "1",
+		inputAmount: "56",
+		changeAmount: "0",
+		effectiveFee: "2",
+		...overrides,
 	};
 }
 

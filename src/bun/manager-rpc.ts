@@ -7,12 +7,16 @@ import type {
 	ManagerBalancesByMintDto,
 	ManagerBalancesByUnitDto,
 	ManagerCancelOperationParams,
+	ManagerCreateMeltQuoteParams,
 	ManagerEventDto,
 	ManagerEventName,
 	ManagerEventPayloads,
 	ManagerHistoryEntryDto,
 	ManagerHistoryPaginationParams,
 	ManagerKeysetDto,
+	ManagerListPendingMeltQuotesParams,
+	ManagerMeltOperationDto,
+	ManagerMeltQuoteDto,
 	ManagerMintDto,
 	ManagerEventSubscriptionDto,
 	ManagerMintOperationDto,
@@ -32,6 +36,9 @@ import type {
 	ManagerSendOperationDto,
 	ManagerSendOperationIdParams,
 	ManagerSendPrepareParams,
+	ManagerOperationIdWithReasonParams,
+	ManagerPrepareMeltParams,
+	ManagerQuoteIdentityDto,
 } from "../mainview/lib/manager-rpc.ts";
 
 type ManagerSendPrepareInput = Parameters<Manager["ops"]["send"]["prepare"]>[0];
@@ -209,16 +216,79 @@ type ManagerReceiveOpsApiLike = {
 	listInFlight: () => Promise<ManagerReceiveOperationLike[]>;
 };
 
+type ManagerMeltQuoteLike = {
+	mintUrl: string;
+	method: string;
+	quoteId: string;
+	request: string;
+	unit: string;
+	expiry: number;
+	state: string;
+	createdAt: number;
+	updatedAt: number;
+	amount: unknown;
+	fee_reserve?: unknown;
+	fee_options?: unknown[];
+};
+
+type ManagerMeltOperationLike = {
+	id: string;
+	mintUrl: string;
+	method: string;
+	methodData: Record<string, unknown>;
+	unit: string;
+	state: string;
+	createdAt: number;
+	updatedAt: number;
+	amount?: unknown;
+	fee_reserve?: unknown;
+	swap_fee?: unknown;
+	inputAmount?: unknown;
+	changeAmount?: unknown;
+	effectiveFee?: unknown;
+};
+
+type ManagerMeltQuoteApiLike = {
+	create: (params: any) => Promise<ManagerMeltQuoteLike>;
+	get: (params: any) => Promise<ManagerMeltQuoteLike | null>;
+	listPending: (
+		params?: any,
+	) => Promise<ManagerMeltQuoteLike[]>;
+	refresh: (params: any) => Promise<ManagerMeltQuoteLike>;
+};
+
+type ManagerMeltOpsApiLike = {
+	prepare: (params: any) => Promise<ManagerMeltOperationLike>;
+	execute: (operationId: any) => Promise<ManagerMeltOperationLike>;
+	get: (operationId: any) => Promise<ManagerMeltOperationLike | null>;
+	getByQuote: (
+		params: any,
+	) => Promise<ManagerMeltOperationLike | null>;
+	listByQuote: (
+		params: any,
+	) => Promise<ManagerMeltOperationLike[]>;
+	listPrepared: () => Promise<ManagerMeltOperationLike[]>;
+	listInFlight: () => Promise<ManagerMeltOperationLike[]>;
+	refresh: (operationId: any) => Promise<ManagerMeltOperationLike>;
+	cancel: (operationId: any, reason?: any) => Promise<void>;
+	reclaim: (operationId: any, reason?: any) => Promise<void>;
+	finalize: (operationId: any) => Promise<void>;
+};
+
 export type ManagerRpcManagerLike = {
 	mint: ManagerMintApiLike;
 	wallet: {
 		balances: ManagerWalletBalancesApiLike;
 	};
 	history: ManagerHistoryApiLike;
+	quotes: {
+		melt: ManagerMeltQuoteApiLike;
+	};
 	ops: {
 		mint: ManagerMintOpsApiLike;
 		send: ManagerSendApiLike;
 		receive: ManagerReceiveOpsApiLike;
+		melt: ManagerMeltOpsApiLike;
 	};
 	on: <TEventName extends ManagerEventName>(
 		event: TEventName,
@@ -307,6 +377,45 @@ type ManagerRpcRequestHandlers = {
 	managerReceiveCancel: (params: ManagerCancelOperationParams) => Promise<void>;
 	managerReceiveListPrepared: () => Promise<ManagerPreparedReceiveOperationDto[]>;
 	managerReceiveListInFlight: () => Promise<ManagerReceiveOperationDto[]>;
+	managerMeltQuoteCreate: (
+		params: ManagerCreateMeltQuoteParams,
+	) => Promise<ManagerMeltQuoteDto>;
+	managerMeltQuoteGet: (
+		params: ManagerQuoteIdentityDto,
+	) => Promise<ManagerMeltQuoteDto | null>;
+	managerMeltQuoteListPending: (
+		params?: ManagerListPendingMeltQuotesParams,
+	) => Promise<ManagerMeltQuoteDto[]>;
+	managerMeltQuoteRefresh: (
+		params: ManagerQuoteIdentityDto,
+	) => Promise<ManagerMeltQuoteDto>;
+	managerMeltPrepare: (
+		params: ManagerPrepareMeltParams,
+	) => Promise<ManagerMeltOperationDto>;
+	managerMeltExecute: (
+		params: ManagerOperationIdParams,
+	) => Promise<ManagerMeltOperationDto>;
+	managerMeltGet: (
+		params: ManagerOperationIdParams,
+	) => Promise<ManagerMeltOperationDto | null>;
+	managerMeltGetByQuote: (
+		params: ManagerQuoteIdentityDto,
+	) => Promise<ManagerMeltOperationDto | null>;
+	managerMeltListByQuote: (
+		params: ManagerQuoteIdentityDto,
+	) => Promise<ManagerMeltOperationDto[]>;
+	managerMeltListPrepared: () => Promise<ManagerMeltOperationDto[]>;
+	managerMeltListInFlight: () => Promise<ManagerMeltOperationDto[]>;
+	managerMeltRefresh: (
+		params: ManagerOperationIdParams,
+	) => Promise<ManagerMeltOperationDto>;
+	managerMeltCancel: (
+		params: ManagerOperationIdWithReasonParams,
+	) => Promise<void>;
+	managerMeltReclaim: (
+		params: ManagerOperationIdWithReasonParams,
+	) => Promise<void>;
+	managerMeltFinalize: (params: ManagerOperationIdParams) => Promise<void>;
 };
 
 export function createManagerRpcRequestHandlers(
@@ -509,6 +618,73 @@ export function createManagerRpcRequestHandlers(
 				serializeReceiveOperation,
 			);
 		},
+		managerMeltQuoteCreate: async (params) => {
+			const manager = await getManager();
+			return serializeMeltQuote(await manager.quotes.melt.create(params));
+		},
+		managerMeltQuoteGet: async (params) => {
+			const manager = await getManager();
+			const quote = await manager.quotes.melt.get(params);
+			return quote ? serializeMeltQuote(quote) : null;
+		},
+		managerMeltQuoteListPending: async (params) => {
+			const manager = await getManager();
+			const quotes = await manager.quotes.melt.listPending(params);
+			return quotes.map(serializeMeltQuote);
+		},
+		managerMeltQuoteRefresh: async (params) => {
+			const manager = await getManager();
+			return serializeMeltQuote(await manager.quotes.melt.refresh(params));
+		},
+		managerMeltPrepare: async (params) => {
+			const manager = await getManager();
+			return serializeMeltOperation(await manager.ops.melt.prepare(params));
+		},
+		managerMeltExecute: async ({ operationId }) => {
+			const manager = await getManager();
+			return serializeMeltOperation(await manager.ops.melt.execute(operationId));
+		},
+		managerMeltGet: async ({ operationId }) => {
+			const manager = await getManager();
+			const operation = await manager.ops.melt.get(operationId);
+			return operation ? serializeMeltOperation(operation) : null;
+		},
+		managerMeltGetByQuote: async (params) => {
+			const manager = await getManager();
+			const operation = await manager.ops.melt.getByQuote(params);
+			return operation ? serializeMeltOperation(operation) : null;
+		},
+		managerMeltListByQuote: async (params) => {
+			const manager = await getManager();
+			const operations = await manager.ops.melt.listByQuote(params);
+			return operations.map(serializeMeltOperation);
+		},
+		managerMeltListPrepared: async () => {
+			const manager = await getManager();
+			const operations = await manager.ops.melt.listPrepared();
+			return operations.map(serializeMeltOperation);
+		},
+		managerMeltListInFlight: async () => {
+			const manager = await getManager();
+			const operations = await manager.ops.melt.listInFlight();
+			return operations.map(serializeMeltOperation);
+		},
+		managerMeltRefresh: async ({ operationId }) => {
+			const manager = await getManager();
+			return serializeMeltOperation(await manager.ops.melt.refresh(operationId));
+		},
+		managerMeltCancel: async ({ operationId, reason }) => {
+			const manager = await getManager();
+			await manager.ops.melt.cancel(operationId, reason);
+		},
+		managerMeltReclaim: async ({ operationId, reason }) => {
+			const manager = await getManager();
+			await manager.ops.melt.reclaim(operationId, reason);
+		},
+		managerMeltFinalize: async ({ operationId }) => {
+			const manager = await getManager();
+			await manager.ops.melt.finalize(operationId);
+		},
 	};
 }
 
@@ -692,6 +868,42 @@ function serializeManagerEvent<TEventName extends ManagerEventName>(
 				mintUrl: receivePayload.mintUrl,
 				operationId: receivePayload.operationId,
 				operation: serializeReceiveOperation(receivePayload.operation),
+			},
+		} as ManagerEventDto<TEventName>;
+	}
+
+	if (
+		event === "melt-op:prepared" ||
+		event === "melt-op:pending" ||
+		event === "melt-op:finalized" ||
+		event === "melt-op:rolled-back"
+	) {
+		const operationPayload = payload as {
+			mintUrl: string;
+			operationId: string;
+			operation: ManagerMeltOperationLike;
+		};
+		return {
+			event,
+			payload: {
+				...operationPayload,
+				operation: serializeMeltOperation(operationPayload.operation),
+			},
+		} as ManagerEventDto<TEventName>;
+	}
+
+	if (event === "melt-quote:updated") {
+		const quotePayload = payload as {
+			mintUrl: string;
+			method: string;
+			quoteId: string;
+			quote: ManagerMeltQuoteLike;
+		};
+		return {
+			event,
+			payload: {
+				...quotePayload,
+				quote: serializeMeltQuote(quotePayload.quote),
 			},
 		} as ManagerEventDto<TEventName>;
 	}
@@ -938,6 +1150,100 @@ function serializePreparedReceiveOperation(
 	operation: ManagerPreparedReceiveOperationLike,
 ): ManagerPreparedReceiveOperationDto {
 	return serializeReceiveOperation(operation) as ManagerPreparedReceiveOperationDto;
+}
+
+function serializeMeltQuote(quote: ManagerMeltQuoteLike): ManagerMeltQuoteDto {
+	const serialized = {
+		...(quote as Record<string, unknown>),
+		mintUrl: quote.mintUrl,
+		method: quote.method,
+		quoteId: quote.quoteId,
+		request: quote.request,
+		amount: serializeAmount(quote.amount),
+		unit: quote.unit,
+		expiry: quote.expiry,
+		state: String(quote.state),
+		createdAt: quote.createdAt,
+		updatedAt: quote.updatedAt,
+	} as ManagerMeltQuoteDto;
+
+	if (quote.fee_reserve !== undefined) {
+		serialized.fee_reserve = serializeAmount(quote.fee_reserve);
+	}
+	if (Array.isArray(quote.fee_options)) {
+		serialized.fee_options = serializeMeltFeeOptions(quote.fee_options);
+	}
+
+	return serialized;
+}
+
+function serializeMeltOperation(
+	operation: ManagerMeltOperationLike,
+): ManagerMeltOperationDto {
+	const serialized = {
+		...(operation as Record<string, unknown>),
+		id: operation.id,
+		mintUrl: operation.mintUrl,
+		method: operation.method,
+		methodData: serializeMeltMethodData(operation.methodData),
+		unit: operation.unit,
+		state: String(operation.state),
+		createdAt: operation.createdAt,
+		updatedAt: operation.updatedAt,
+	} as ManagerMeltOperationDto;
+
+	copySerializedAmount(operation, serialized, "amount");
+	copySerializedAmount(operation, serialized, "fee_reserve");
+	copySerializedAmount(operation, serialized, "swap_fee");
+	copySerializedAmount(operation, serialized, "inputAmount");
+	copySerializedAmount(operation, serialized, "changeAmount");
+	copySerializedAmount(operation, serialized, "effectiveFee");
+
+	return serialized;
+}
+
+function serializeMeltMethodData(
+	methodData: Record<string, unknown>,
+): Record<string, unknown> {
+	if (methodData.amountSats === undefined || methodData.amountSats === null) {
+		return methodData;
+	}
+
+	return {
+		...methodData,
+		amountSats: serializeAmount(methodData.amountSats),
+	};
+}
+
+function serializeMeltFeeOptions(feeOptions: unknown[]): unknown[] {
+	return feeOptions.map((feeOption) => {
+		if (!feeOption || typeof feeOption !== "object") {
+			return feeOption;
+		}
+
+		const feeOptionRecord = feeOption as Record<string, unknown>;
+		if (
+			feeOptionRecord.fee_reserve === undefined ||
+			feeOptionRecord.fee_reserve === null
+		) {
+			return feeOption;
+		}
+
+		return {
+			...feeOptionRecord,
+			fee_reserve: serializeAmount(feeOptionRecord.fee_reserve),
+		};
+	});
+}
+
+function copySerializedAmount(
+	source: Record<string, unknown>,
+	target: Record<string, unknown>,
+	field: string,
+): void {
+	if (source[field] !== undefined) {
+		target[field] = serializeAmount(source[field]);
+	}
 }
 
 function serializeAmount(input: unknown): string {

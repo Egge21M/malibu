@@ -7,6 +7,8 @@ import type {
 	ManagerBalancesByUnitDto,
 	ManagerEventDto,
 	ManagerHistoryEntryDto,
+	ManagerMeltOperationDto,
+	ManagerMeltQuoteDto,
 	ManagerMintDto,
 	ManagerMintWithKeysetsDto,
 	ManagerMintOperationDto,
@@ -422,6 +424,63 @@ function createFakeRpc() {
 				managerReceiveListInFlight: async () => {
 					calls.push(["managerReceiveListInFlight"]);
 					return [receiveOperation("receive-2", "executing")];
+				},
+				managerMeltQuoteCreate: async (params: unknown) => {
+					calls.push(["managerMeltQuoteCreate", params]);
+					return meltQuote("quote-1");
+				},
+				managerMeltQuoteGet: async (params: unknown) => {
+					calls.push(["managerMeltQuoteGet", params]);
+					return meltQuote("quote-1");
+				},
+				managerMeltQuoteListPending: async (params?: unknown) => {
+					calls.push(["managerMeltQuoteListPending", params]);
+					return [meltQuote("quote-1")];
+				},
+				managerMeltQuoteRefresh: async (params: unknown) => {
+					calls.push(["managerMeltQuoteRefresh", params]);
+					return meltQuote("quote-1", { state: "PAID" });
+				},
+				managerMeltPrepare: async (params: unknown) => {
+					calls.push(["managerMeltPrepare", params]);
+					return meltOperation("melt-1", "prepared");
+				},
+				managerMeltExecute: async (params: unknown) => {
+					calls.push(["managerMeltExecute", params]);
+					return meltOperation("melt-1", "pending");
+				},
+				managerMeltGet: async (params: unknown) => {
+					calls.push(["managerMeltGet", params]);
+					return meltOperation("melt-1", "pending");
+				},
+				managerMeltGetByQuote: async (params: unknown) => {
+					calls.push(["managerMeltGetByQuote", params]);
+					return meltOperation("melt-1", "pending");
+				},
+				managerMeltListByQuote: async (params: unknown) => {
+					calls.push(["managerMeltListByQuote", params]);
+					return [meltOperation("melt-1", "pending")];
+				},
+				managerMeltListPrepared: async () => {
+					calls.push(["managerMeltListPrepared"]);
+					return [meltOperation("melt-1", "prepared")];
+				},
+				managerMeltListInFlight: async () => {
+					calls.push(["managerMeltListInFlight"]);
+					return [meltOperation("melt-2", "pending")];
+				},
+				managerMeltRefresh: async (params: unknown) => {
+					calls.push(["managerMeltRefresh", params]);
+					return meltOperation("melt-1", "finalized");
+				},
+				managerMeltCancel: async (params: unknown) => {
+					calls.push(["managerMeltCancel", params]);
+				},
+				managerMeltReclaim: async (params: unknown) => {
+					calls.push(["managerMeltReclaim", params]);
+				},
+				managerMeltFinalize: async (params: unknown) => {
+					calls.push(["managerMeltFinalize", params]);
 				},
 			},
 			send: {
@@ -991,9 +1050,20 @@ describe("createRemoteCocoManager", () => {
 		);
 		expect(
 			() =>
-				(manager.ops as unknown as Record<string, unknown>)["melt"],
+				(
+					manager as unknown as { quotes: Record<string, unknown> }
+				).quotes["receive"],
 		).toThrow(
-			'Remote Coco manager operations API does not support "melt" yet',
+			'Remote Coco manager quotes API does not support "receive" yet',
+		);
+		expect(
+			() =>
+				(
+					(manager.ops as unknown as { melt: Record<string, unknown> })
+						.melt
+				)["recover"],
+		).toThrow(
+			'Remote Coco manager melt operation API does not support "recover" yet',
 		);
 		expect(
 			() =>
@@ -1155,6 +1225,60 @@ function receiveOperation(
 		updatedAt: 15,
 		state,
 		source: { type: "manual-token" },
+		...overrides,
+	};
+}
+
+function meltQuote(
+	quoteId: string,
+	overrides: Partial<ManagerMeltQuoteDto> = {},
+): ManagerMeltQuoteDto {
+	return {
+		mintUrl: "https://mint.example",
+		method: "bolt11",
+		quoteId,
+		request: "lnbc1...",
+		amount: "55",
+		unit: "sat",
+		expiry: 123,
+		state: "UNPAID",
+		fee_reserve: "2",
+		fee_options: [{ fee_reserve: "2", label: "fast" }],
+		createdAt: 16,
+		updatedAt: 17,
+		...overrides,
+	};
+}
+
+function meltOperation(
+	id: string,
+	state: string,
+	overrides: Partial<ManagerMeltOperationDto> = {},
+): ManagerMeltOperationDto {
+	return {
+		id,
+		mintUrl: "https://mint.example",
+		method: "bolt11",
+		methodData: {
+			amountSats: "55",
+			changeOutputData: [
+				{
+					blindedMessage: {
+						amount: 123,
+					},
+				},
+			],
+		},
+		unit: "sat",
+		state,
+		createdAt: 18,
+		updatedAt: 19,
+		amount: "55",
+		fee_reserve: "2",
+		swap_fee: "1",
+		inputAmount: "56",
+		changeAmount: "0",
+		effectiveFee: "2",
 		...overrides,
 	};
 }

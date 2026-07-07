@@ -2,6 +2,9 @@ import {
 	Amount,
 	type HistoryEntry,
 	type Manager,
+	type MeltOperation,
+	type MeltQuote,
+	type QuoteIdentity,
 	type ReceiveOperation,
 } from "@cashu/coco-core";
 import type {
@@ -12,11 +15,15 @@ import type {
 	ManagerBalancesByMintDto,
 	ManagerBalancesByUnitDto,
 	ManagerCancelOperationParams,
+	ManagerCreateMeltQuoteParams,
 	ManagerEventDto,
 	ManagerEventName,
 	ManagerEventPayloads,
 	ManagerHistoryEntryDto,
 	ManagerHistoryPaginationParams,
+	ManagerListPendingMeltQuotesParams,
+	ManagerMeltOperationDto,
+	ManagerMeltQuoteDto,
 	ManagerMintDto,
 	ManagerEventSubscriptionDto,
 	ManagerMintUrlParams,
@@ -28,7 +35,9 @@ import type {
 	ManagerOperationIdParams,
 	ManagerPendingMintCheckResultDto,
 	ManagerPrepareReceiveParams,
+	ManagerPrepareMeltParams,
 	ManagerPreparedReceiveOperationDto,
+	ManagerQuoteIdentityDto,
 	ManagerReceiveOperationDto,
 	ManagerSendExecuteParams,
 	ManagerSendExecuteResultDto,
@@ -36,6 +45,7 @@ import type {
 	ManagerSendOperationDto,
 	ManagerSendOperationIdParams,
 	ManagerSendPrepareParams,
+	ManagerOperationIdWithReasonParams,
 } from "@/lib/manager-rpc";
 
 type RemoteManagerEventPayloads = Omit<
@@ -49,6 +59,11 @@ type RemoteManagerEventPayloads = Omit<
 		| "receive-op:prepared"
 		| "receive-op:finalized"
 		| "receive-op:rolled-back"
+		| "melt-op:prepared"
+		| "melt-op:pending"
+		| "melt-op:finalized"
+		| "melt-op:rolled-back"
+		| "melt-quote:updated"
 > & {
 	"history:updated": {
 		mintUrl: string;
@@ -94,6 +109,16 @@ type RemoteManagerEventPayloads = Omit<
 		operationId: string;
 		operation: ReceiveOperation;
 	};
+	"melt-op:prepared": MeltOperationEventPayload;
+	"melt-op:pending": MeltOperationEventPayload;
+	"melt-op:finalized": MeltOperationEventPayload;
+	"melt-op:rolled-back": MeltOperationEventPayload;
+	"melt-quote:updated": {
+		mintUrl: string;
+		method: string;
+		quoteId: string;
+		quote: MeltQuote;
+	};
 };
 
 type ManagerEventHandler<TEventName extends ManagerEventName> = (
@@ -119,6 +144,12 @@ type ManagerMintOperationEventPayload = {
 	mintUrl: string;
 	operationId: string;
 	operation: MintOperationLike;
+};
+
+type MeltOperationEventPayload = {
+	mintUrl: string;
+	operationId: string;
+	operation: MeltOperation;
 };
 
 type RemoteManagerRpc = {
@@ -203,6 +234,45 @@ type RemoteManagerRpc = {
 			managerReceiveCancel: (params: ManagerCancelOperationParams) => Promise<void>;
 			managerReceiveListPrepared: () => Promise<ManagerPreparedReceiveOperationDto[]>;
 			managerReceiveListInFlight: () => Promise<ManagerReceiveOperationDto[]>;
+			managerMeltQuoteCreate: (
+				params: ManagerCreateMeltQuoteParams,
+			) => Promise<ManagerMeltQuoteDto>;
+			managerMeltQuoteGet: (
+				params: ManagerQuoteIdentityDto,
+			) => Promise<ManagerMeltQuoteDto | null>;
+			managerMeltQuoteListPending: (
+				params?: ManagerListPendingMeltQuotesParams,
+			) => Promise<ManagerMeltQuoteDto[]>;
+			managerMeltQuoteRefresh: (
+				params: ManagerQuoteIdentityDto,
+			) => Promise<ManagerMeltQuoteDto>;
+			managerMeltPrepare: (
+				params: ManagerPrepareMeltParams,
+			) => Promise<ManagerMeltOperationDto>;
+			managerMeltExecute: (
+				params: ManagerOperationIdParams,
+			) => Promise<ManagerMeltOperationDto>;
+			managerMeltGet: (
+				params: ManagerOperationIdParams,
+			) => Promise<ManagerMeltOperationDto | null>;
+			managerMeltGetByQuote: (
+				params: ManagerQuoteIdentityDto,
+			) => Promise<ManagerMeltOperationDto | null>;
+			managerMeltListByQuote: (
+				params: ManagerQuoteIdentityDto,
+			) => Promise<ManagerMeltOperationDto[]>;
+			managerMeltListPrepared: () => Promise<ManagerMeltOperationDto[]>;
+			managerMeltListInFlight: () => Promise<ManagerMeltOperationDto[]>;
+			managerMeltRefresh: (
+				params: ManagerOperationIdParams,
+			) => Promise<ManagerMeltOperationDto>;
+			managerMeltCancel: (
+				params: ManagerOperationIdWithReasonParams,
+			) => Promise<void>;
+			managerMeltReclaim: (
+				params: ManagerOperationIdWithReasonParams,
+			) => Promise<void>;
+			managerMeltFinalize: (params: ManagerOperationIdParams) => Promise<void>;
 		};
 	send: {
 		managerEventSubscribe: (payload: ManagerEventSubscriptionDto) => void;
@@ -271,6 +341,33 @@ class RemoteCocoManager {
 				});
 			return entries.map(rehydrateHistoryEntry);
 		},
+	});
+
+	readonly quotes = unsupportedAwareObject("Remote Coco manager quotes API", {
+		melt: unsupportedAwareObject("Remote Coco manager melt quote API", {
+			create: async (input: ManagerCreateMeltQuoteParams) =>
+				rehydrateMeltQuote(
+					await this.rpc.request.managerMeltQuoteCreate(
+						dehydrateCreateMeltQuoteParams(input),
+					),
+				),
+			get: async (input: QuoteIdentity) => {
+				const quote = await this.rpc.request.managerMeltQuoteGet(
+					dehydrateQuoteIdentity(input),
+				);
+				return quote ? rehydrateMeltQuote(quote) : null;
+			},
+			listPending: async (input?: ManagerListPendingMeltQuotesParams) =>
+				(
+					await this.rpc.request.managerMeltQuoteListPending(input)
+				).map(rehydrateMeltQuote),
+			refresh: async (input: QuoteIdentity) =>
+				rehydrateMeltQuote(
+					await this.rpc.request.managerMeltQuoteRefresh(
+						dehydrateQuoteIdentity(input),
+					),
+				),
+		}),
 	});
 
 	readonly ops = unsupportedAwareObject("Remote Coco manager operations API", {
@@ -397,6 +494,57 @@ class RemoteCocoManager {
 					rehydrateReceiveOperation,
 				),
 		}),
+		melt: unsupportedAwareObject("Remote Coco manager melt operation API", {
+			prepare: async (input: { quote: MeltQuote; feeIndex?: number }) =>
+				rehydrateMeltOperation(
+					await this.rpc.request.managerMeltPrepare({
+						quote: dehydrateMeltQuoteRef(input.quote),
+						feeIndex: input.feeIndex,
+					}),
+				),
+			execute: async (operationOrId: MeltOperation | string) =>
+				rehydrateMeltOperation(
+					await this.rpc.request.managerMeltExecute({
+						operationId: getMeltOperationId(operationOrId),
+					}),
+				),
+			get: async (operationId: string) => {
+				const operation = await this.rpc.request.managerMeltGet({
+					operationId,
+				});
+				return operation ? rehydrateMeltOperation(operation) : null;
+			},
+			getByQuote: async (input: QuoteIdentity) => {
+				const operation = await this.rpc.request.managerMeltGetByQuote(
+					dehydrateQuoteIdentity(input),
+				);
+				return operation ? rehydrateMeltOperation(operation) : null;
+			},
+			listByQuote: async (input: QuoteIdentity) =>
+				(
+					await this.rpc.request.managerMeltListByQuote(
+						dehydrateQuoteIdentity(input),
+					)
+				).map(rehydrateMeltOperation),
+			listPrepared: async () =>
+				(
+					await this.rpc.request.managerMeltListPrepared()
+				).map(rehydrateMeltOperation),
+			listInFlight: async () =>
+				(
+					await this.rpc.request.managerMeltListInFlight()
+				).map(rehydrateMeltOperation),
+			refresh: async (operationId: string) =>
+				rehydrateMeltOperation(
+					await this.rpc.request.managerMeltRefresh({ operationId }),
+				),
+			cancel: (operationId: string, reason?: string) =>
+				this.rpc.request.managerMeltCancel({ operationId, reason }),
+			reclaim: (operationId: string, reason?: string) =>
+				this.rpc.request.managerMeltReclaim({ operationId, reason }),
+			finalize: (operationId: string) =>
+				this.rpc.request.managerMeltFinalize({ operationId }),
+		}),
 	});
 
 	constructor(private readonly rpc: RemoteManagerRpc) {}
@@ -468,7 +616,15 @@ class RemoteCocoManager {
 
 export function createRemoteCocoManager(rpc: RemoteManagerRpc): Manager {
 	return unsupportedAwareObject("Remote Coco manager", new RemoteCocoManager(rpc), {
-		allowProperties: new Set(["mint", "wallet", "history", "ops", "on", "off"]),
+		allowProperties: new Set([
+			"mint",
+			"wallet",
+			"history",
+			"quotes",
+			"ops",
+			"on",
+			"off",
+		]),
 	}) as unknown as Manager;
 }
 
@@ -581,6 +737,25 @@ function rehydrateManagerEventPayload(event: ManagerEventDto) {
 		return {
 			...event.payload,
 			operation: rehydrateReceiveOperation(event.payload.operation),
+		};
+	}
+
+	if (
+		event.event === "melt-op:prepared" ||
+		event.event === "melt-op:pending" ||
+		event.event === "melt-op:finalized" ||
+		event.event === "melt-op:rolled-back"
+	) {
+		return {
+			...event.payload,
+			operation: rehydrateMeltOperation(event.payload.operation),
+		};
+	}
+
+	if (event.event === "melt-quote:updated") {
+		return {
+			...event.payload,
+			quote: rehydrateMeltQuote(event.payload.quote),
 		};
 	}
 
@@ -762,6 +937,141 @@ function operationIdFrom(operationOrId: ReceiveOperation | string): string {
 	}
 
 	return operationOrId.id;
+}
+
+function rehydrateMeltQuote(quote: ManagerMeltQuoteDto): MeltQuote {
+	return {
+		...quote,
+		amount: Amount.from(quote.amount),
+		...(quote.fee_reserve === undefined
+			? {}
+			: { fee_reserve: Amount.from(quote.fee_reserve) }),
+		...(Array.isArray(quote.fee_options)
+			? { fee_options: rehydrateMeltFeeOptions(quote.fee_options) }
+			: {}),
+	} as unknown as MeltQuote;
+}
+
+function rehydrateMeltOperation(
+	operation: ManagerMeltOperationDto,
+): MeltOperation {
+	return {
+		...operation,
+		methodData: rehydrateMeltMethodData(operation.methodData),
+		...(operation.amount === undefined
+			? {}
+			: { amount: Amount.from(operation.amount) }),
+		...(operation.fee_reserve === undefined
+			? {}
+			: { fee_reserve: Amount.from(operation.fee_reserve) }),
+		...(operation.swap_fee === undefined
+			? {}
+			: { swap_fee: Amount.from(operation.swap_fee) }),
+		...(operation.inputAmount === undefined
+			? {}
+			: { inputAmount: Amount.from(operation.inputAmount) }),
+		...(operation.changeAmount === undefined
+			? {}
+			: { changeAmount: Amount.from(operation.changeAmount) }),
+		...(operation.effectiveFee === undefined
+			? {}
+			: { effectiveFee: Amount.from(operation.effectiveFee) }),
+	} as unknown as MeltOperation;
+}
+
+function rehydrateMeltMethodData(
+	methodData: Record<string, unknown>,
+): Record<string, unknown> {
+	if (typeof methodData.amountSats !== "string") {
+		return methodData;
+	}
+
+	return {
+		...methodData,
+		amountSats: Amount.from(methodData.amountSats),
+	};
+}
+
+function rehydrateMeltFeeOptions(feeOptions: unknown[]): unknown[] {
+	return feeOptions.map((feeOption) => {
+		if (!feeOption || typeof feeOption !== "object") {
+			return feeOption;
+		}
+
+		const feeOptionRecord = feeOption as Record<string, unknown>;
+		if (typeof feeOptionRecord.fee_reserve !== "string") {
+			return feeOption;
+		}
+
+		return {
+			...feeOptionRecord,
+			fee_reserve: Amount.from(feeOptionRecord.fee_reserve),
+		};
+	});
+}
+
+function dehydrateAmount(input: unknown): unknown {
+	if (
+		typeof input === "string" ||
+		typeof input === "number" ||
+		typeof input === "bigint"
+	) {
+		return input.toString();
+	}
+
+	if (!input || typeof input !== "object") {
+		return input;
+	}
+
+	if ("toString" in input && typeof input.toString === "function") {
+		const stringValue = input.toString();
+		if (stringValue !== "[object Object]") {
+			return stringValue;
+		}
+	}
+
+	return input;
+}
+
+function dehydrateCreateMeltQuoteParams(
+	input: ManagerCreateMeltQuoteParams,
+): ManagerCreateMeltQuoteParams {
+	return {
+		...input,
+		methodData: dehydrateMethodData(input.methodData),
+	};
+}
+
+function dehydrateMethodData(
+	methodData: Record<string, unknown>,
+): Record<string, unknown> {
+	return Object.fromEntries(
+		Object.entries(methodData).map(([key, value]) => [
+			key,
+			key === "amountSats" ? dehydrateAmount(value) : value,
+		]),
+	);
+}
+
+function dehydrateMeltQuoteRef(
+	quote: MeltQuote,
+): ManagerPrepareMeltParams["quote"] {
+	return {
+		mintUrl: quote.mintUrl,
+		quoteId: quote.quoteId,
+		method: quote.method,
+	};
+}
+
+function dehydrateQuoteIdentity(input: QuoteIdentity): ManagerQuoteIdentityDto {
+	return {
+		mintUrl: input.mintUrl,
+		quoteId: input.quoteId,
+	};
+}
+
+function getMeltOperationId(operationOrId: MeltOperation | string): string {
+	return typeof operationOrId === "string" ? operationOrId : operationOrId.id;
 }
 
 function unsupportedAwareObject<TTarget extends object>(
