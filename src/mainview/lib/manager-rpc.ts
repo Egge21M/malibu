@@ -316,6 +316,18 @@ export type ManagerRpcRequests = {
 		params: ManagerSendOperationIdParams;
 		response: void;
 	};
+	managerSendRecoveryRun: {
+		params: undefined;
+		response: void;
+	};
+	managerSendRecoveryInProgress: {
+		params: undefined;
+		response: boolean;
+	};
+	managerSendDiagnosticsIsLocked: {
+		params: ManagerSendOperationIdParams;
+		response: boolean;
+	};
 };
 
 export type ManagerRpcBunMessages = {
