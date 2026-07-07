@@ -8,6 +8,8 @@ import type {
 	ManagerEventDto,
 	ManagerEventName,
 	ManagerEventPayloads,
+	ManagerHistoryEntryDto,
+	ManagerHistoryPaginationParams,
 	ManagerKeysetDto,
 	ManagerMintDto,
 	ManagerEventSubscriptionDto,
@@ -77,11 +79,23 @@ type ManagerWalletBalancesApiLike = {
 	) => Promise<ManagerBalancesByUnitLike>;
 };
 
+type ManagerHistoryEntryLike = Omit<ManagerHistoryEntryDto, "amount"> & {
+	amount: unknown;
+};
+
+type ManagerHistoryApiLike = {
+	getPaginatedHistory: (
+		offset?: number,
+		limit?: number,
+	) => Promise<ManagerHistoryEntryLike[]>;
+};
+
 export type ManagerRpcManagerLike = {
 	mint: ManagerMintApiLike;
 	wallet: {
 		balances: ManagerWalletBalancesApiLike;
 	};
+	history: ManagerHistoryApiLike;
 	on: <TEventName extends ManagerEventName>(
 		event: TEventName,
 		handler: (payload: unknown) => void,
@@ -111,6 +125,9 @@ type ManagerRpcRequestHandlers = {
 	managerWalletBalancesTotalByUnit: (
 		params?: ManagerBalanceScopeDto,
 	) => Promise<ManagerBalancesByUnitDto>;
+	managerHistoryGetPaginatedHistory: (
+		params: ManagerHistoryPaginationParams,
+	) => Promise<ManagerHistoryEntryDto[]>;
 };
 
 export function createManagerRpcRequestHandlers(
@@ -169,6 +186,11 @@ export function createManagerRpcRequestHandlers(
 			return serializeBalancesByUnit(
 				await manager.wallet.balances.totalByUnit(scope),
 			);
+		},
+		managerHistoryGetPaginatedHistory: async ({ offset, limit }) => {
+			const manager = await getManager();
+			const entries = await manager.history.getPaginatedHistory(offset, limit);
+			return entries.map(serializeHistoryEntry);
 		},
 	};
 }
@@ -260,6 +282,20 @@ function serializeManagerEvent<TEventName extends ManagerEventName>(
 			payload: {
 				...reservedPayload,
 				amount: serializeUnitAmount(reservedPayload.amount),
+			},
+		} as ManagerEventDto<TEventName>;
+	}
+
+	if (event === "history:updated") {
+		const historyPayload = payload as {
+			mintUrl: string;
+			entry: ManagerHistoryEntryLike;
+		};
+		return {
+			event,
+			payload: {
+				mintUrl: historyPayload.mintUrl,
+				entry: serializeHistoryEntry(historyPayload.entry),
 			},
 		} as ManagerEventDto<TEventName>;
 	}
@@ -366,6 +402,28 @@ function serializeUnitAmount(input: {
 	return {
 		...input,
 		amount: serializeAmount(input.amount),
+	};
+}
+
+function serializeHistoryEntry(entry: ManagerHistoryEntryLike): ManagerHistoryEntryDto {
+	return {
+		id: entry.id,
+		type: entry.type,
+		source: entry.source,
+		createdAt: entry.createdAt,
+		updatedAt: entry.updatedAt,
+		mintUrl: entry.mintUrl,
+		unit: entry.unit,
+		state: String(entry.state),
+		amount: serializeAmount(entry.amount),
+		metadata: entry.metadata,
+		error: entry.error,
+		operationId: entry.operationId,
+		legacyHistoryId: entry.legacyHistoryId,
+		paymentRequest: entry.paymentRequest,
+		quoteId: entry.quoteId,
+		remoteState: entry.remoteState,
+		token: entry.token,
 	};
 }
 

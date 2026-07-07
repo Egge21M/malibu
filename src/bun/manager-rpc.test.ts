@@ -6,6 +6,7 @@ import {
 } from "./manager-rpc.ts";
 import type {
 	ManagerEventName,
+	ManagerHistoryEntryDto,
 } from "../mainview/lib/manager-rpc.ts";
 
 describe("manager RPC handlers", () => {
@@ -76,6 +77,9 @@ describe("manager RPC handlers", () => {
 		).resolves.toEqual({
 			sat: serializedBalance("sat"),
 		});
+		await expect(
+			handlers.managerHistoryGetPaginatedHistory({ offset: 10, limit: 5 }),
+		).resolves.toEqual([serializedHistoryEntry("history-1", "123")]);
 
 		expect(calls).toEqual([
 			["getAllMints"],
@@ -123,6 +127,7 @@ describe("manager RPC handlers", () => {
 					trustedOnly: true,
 				},
 			],
+			["getPaginatedHistory", 10, 5],
 		]);
 	});
 
@@ -201,6 +206,43 @@ describe("manager RPC handlers", () => {
 		expect(calls).toEqual([
 			["on", "proofs:reserved"],
 			["off", "proofs:reserved"],
+		]);
+	});
+
+	it("forwards subscribed history manager events with serialized entries", async () => {
+		const calls: unknown[] = [];
+		const emitted: unknown[] = [];
+		const manager = createFakeManager(calls);
+		const forwarder = createManagerEventForwarder(
+			async () => manager,
+			(event) => emitted.push(event),
+		);
+
+		forwarder.subscribe({ event: "history:updated" });
+		await Promise.resolve();
+
+		manager.emit("history:updated", {
+			mintUrl: "https://mint.example",
+			entry: rawHistoryEntry("history-2", 456n),
+		});
+		forwarder.unsubscribe({ event: "history:updated" });
+		manager.emit("history:updated", {
+			mintUrl: "https://mint.example",
+			entry: rawHistoryEntry("history-ignored", 1n),
+		});
+
+		expect(emitted).toEqual([
+			{
+				event: "history:updated",
+				payload: {
+					mintUrl: "https://mint.example",
+					entry: serializedHistoryEntry("history-2", "456"),
+				},
+			},
+		]);
+		expect(calls).toEqual([
+			["on", "history:updated"],
+			["off", "history:updated"],
 		]);
 	});
 
@@ -292,6 +334,12 @@ function createFakeManager(calls: unknown[]) {
 						sat: rawBalance("sat"),
 					};
 				},
+			},
+		},
+		history: {
+			getPaginatedHistory: async (offset?: number, limit?: number) => {
+				calls.push(["getPaginatedHistory", offset, limit]);
+				return [rawHistoryEntry("history-1", 123n)];
 			},
 		},
 		on<TEventName extends ManagerEventName>(
@@ -386,6 +434,48 @@ function serializedBalance(unit: string) {
 		reserved: "1",
 		total: "6",
 		unit,
+	};
+}
+
+function rawHistoryEntry(id: string, amount: unknown) {
+	return {
+		id,
+		type: "send" as const,
+		source: "operation" as const,
+		operationId: "send-1",
+		state: "finalized",
+		mintUrl: "https://mint.example",
+		unit: "sat",
+		amount,
+		metadata: { memo: "remote history" },
+		token: { token: [{ mint: "https://mint.example", proofs: [] }] },
+		createdAt: 10,
+		updatedAt: 11,
+	};
+}
+
+function serializedHistoryEntry(
+	id: string,
+	amount: string,
+): ManagerHistoryEntryDto {
+	return {
+		id,
+		type: "send",
+		source: "operation",
+		operationId: "send-1",
+		state: "finalized",
+		mintUrl: "https://mint.example",
+		unit: "sat",
+		amount,
+		metadata: { memo: "remote history" },
+		error: undefined,
+		legacyHistoryId: undefined,
+		paymentRequest: undefined,
+		quoteId: undefined,
+		remoteState: undefined,
+		token: { token: [{ mint: "https://mint.example", proofs: [] }] },
+		createdAt: 10,
+		updatedAt: 11,
 	};
 }
 

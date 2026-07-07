@@ -1,10 +1,12 @@
 import { describe, expect, it } from "bun:test";
+import type { HistoryEntry } from "@cashu/coco-core";
 import type {
 	ManagerBalanceScopeDto,
 	ManagerBalancesByMintAndUnitDto,
 	ManagerBalancesByMintDto,
 	ManagerBalancesByUnitDto,
 	ManagerEventDto,
+	ManagerHistoryEntryDto,
 	ManagerMintDto,
 	ManagerMintWithKeysetsDto,
 } from "@/lib/manager-rpc";
@@ -34,6 +36,12 @@ type RemoteMintManagerSurface = {
 			) => Promise<BalancesByUnit>;
 		};
 	};
+	history: {
+		getPaginatedHistory: (
+			offset?: number,
+			limit?: number,
+		) => Promise<HistoryEntry[]>;
+	};
 	on: {
 		(
 			event: "mint:added" | "mint:updated",
@@ -42,6 +50,10 @@ type RemoteMintManagerSurface = {
 		(
 			event: "proofs:reserved",
 			handler: (payload: ProofsReservedEvent) => void,
+		): () => void;
+		(
+			event: "history:updated",
+			handler: (payload: { mintUrl: string; entry: HistoryEntry }) => void,
 		): () => void;
 	};
 	off: {
@@ -52,6 +64,10 @@ type RemoteMintManagerSurface = {
 		(
 			event: "proofs:reserved",
 			handler: (payload: ProofsReservedEvent) => void,
+		): void;
+		(
+			event: "history:updated",
+			handler: (payload: { mintUrl: string; entry: HistoryEntry }) => void,
 		): void;
 	};
 };
@@ -143,6 +159,10 @@ function createFakeRpc() {
 					return {
 						sat: balance("5", "1", "6", "sat"),
 					} satisfies ManagerBalancesByUnitDto;
+				},
+				managerHistoryGetPaginatedHistory: async (params: unknown) => {
+					calls.push(["managerHistoryGetPaginatedHistory", params]);
+					return [historyEntry("history-1", "42")];
 				},
 			},
 			send: {
@@ -239,6 +259,70 @@ describe("createRemoteCocoManager", () => {
 			["managerWalletBalancesByUnit", scope],
 			["managerWalletBalancesTotal", scope],
 			["managerWalletBalancesTotalByUnit", scope],
+		]);
+	});
+
+	it("forwards Coco React history pagination calls and rehydrates history amounts", async () => {
+		const fake = createFakeRpc();
+		const manager = createRemoteCocoManager(
+			fake.rpc,
+		) as unknown as RemoteMintManagerSurface;
+
+		const entries = await manager.history.getPaginatedHistory(12, 6);
+
+		expect(fake.calls).toEqual([
+			[
+				"managerHistoryGetPaginatedHistory",
+				{
+					offset: 12,
+					limit: 6,
+				},
+			],
+		]);
+		expect(entries).toHaveLength(1);
+		expect(entries[0]?.id).toBe("history-1");
+		expect(entries[0]?.amount.toString()).toBe("42");
+		expect(
+			typeof (entries[0]?.amount as unknown as { add: unknown }).add,
+		).toBe("function");
+	});
+
+	it("supports a hook-equivalent history consumer refreshing from history:updated events", async () => {
+		const fake = createFakeRpc();
+		const manager = createRemoteCocoManager(
+			fake.rpc,
+		) as unknown as RemoteMintManagerSurface;
+		const history = createPaginatedHistoryConsumer(manager, 24);
+
+		await history.mount();
+		fake.emit({
+			event: "history:updated",
+			payload: {
+				mintUrl: "https://mint.example",
+				entry: historyEntry("history-2", "21"),
+			},
+		});
+		await Promise.resolve();
+		history.unmount();
+		fake.emit({
+			event: "history:updated",
+			payload: {
+				mintUrl: "https://mint.example",
+				entry: historyEntry("history-ignored", "1"),
+			},
+		});
+		await Promise.resolve();
+
+		expect(history.loads).toHaveLength(2);
+		expect(history.current).toHaveLength(1);
+		expect(history.current[0]?.amount.toString()).toBe("42");
+		expect(fake.calls).toEqual([
+			["managerHistoryGetPaginatedHistory", { offset: 0, limit: 24 }],
+			["addMessageListener", "managerEvent"],
+			["managerEventSubscribe", { event: "history:updated" }],
+			["managerHistoryGetPaginatedHistory", { offset: 0, limit: 24 }],
+			["managerEventUnsubscribe", { event: "history:updated" }],
+			["removeMessageListener", "managerEvent"],
 		]);
 	});
 
@@ -352,9 +436,6 @@ describe("createRemoteCocoManager", () => {
 		) as unknown as RemoteMintManagerSurface;
 
 		expect(
-			() => (manager as unknown as Record<string, unknown>)["history"],
-		).toThrow('Remote Coco manager does not support "history" yet');
-		expect(
 			() =>
 				(manager.wallet as unknown as Record<string, unknown>)["restore"],
 		).toThrow(
@@ -364,6 +445,11 @@ describe("createRemoteCocoManager", () => {
 			() => (manager.mint as unknown as Record<string, unknown>)["getMintInfo"],
 		).toThrow(
 			'Remote Coco manager mint API does not support "getMintInfo" yet',
+		);
+		expect(
+			() => (manager.history as unknown as Record<string, unknown>)["getById"],
+		).toThrow(
+			'Remote Coco manager history API does not support "getById" yet',
 		);
 	});
 });
@@ -390,5 +476,51 @@ function balance(
 		reserved,
 		total,
 		unit,
+	};
+}
+
+function createPaginatedHistoryConsumer(
+	manager: RemoteMintManagerSurface,
+	pageSize: number,
+) {
+	const loads: HistoryEntry[][] = [];
+	let current: HistoryEntry[] = [];
+	let unsubscribe: (() => void) | undefined;
+	const refresh = async () => {
+		current = await manager.history.getPaginatedHistory(0, pageSize);
+		loads.push(current);
+	};
+
+	return {
+		get current() {
+			return current;
+		},
+		loads,
+		async mount() {
+			await refresh();
+			unsubscribe = manager.on("history:updated", () => {
+				void refresh();
+			});
+		},
+		unmount() {
+			unsubscribe?.();
+			unsubscribe = undefined;
+		},
+	};
+}
+
+function historyEntry(id: string, amount: string): ManagerHistoryEntryDto {
+	return {
+		id,
+		type: "send",
+		source: "operation",
+		operationId: "send-1",
+		state: "finalized",
+		mintUrl: "https://mint.example",
+		unit: "sat",
+		amount,
+		token: { token: [{ mint: "https://mint.example", proofs: [] }] },
+		createdAt: 10,
+		updatedAt: 11,
 	};
 }

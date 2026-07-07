@@ -29,9 +29,14 @@ export type ManagerBalanceRefreshEventName =
 	| "proofs:reserved"
 	| "proofs:released";
 
+export type ManagerHistoryType = "mint" | "melt" | "send" | "receive";
+
+export type ManagerHistoryEventName = "history:updated";
+
 export type ManagerEventName =
 	| ManagerMintEventName
-	| ManagerBalanceRefreshEventName;
+	| ManagerBalanceRefreshEventName
+	| ManagerHistoryEventName;
 
 export type ManagerMintWithKeysetsDto = {
 	mint: ManagerMintDto;
@@ -72,6 +77,26 @@ export type ManagerUnitAmountDto = {
 	unit: string;
 };
 
+export type ManagerHistoryEntryDto = {
+	id: string;
+	type: ManagerHistoryType;
+	source: "operation" | "legacy";
+	createdAt: number;
+	updatedAt: number;
+	mintUrl: string;
+	unit: string;
+	state: string;
+	amount: string;
+	metadata?: Record<string, string>;
+	error?: string;
+	operationId?: string;
+	legacyHistoryId?: string;
+	paymentRequest?: string;
+	quoteId?: string;
+	remoteState?: string;
+	token?: unknown;
+};
+
 export type ManagerEventPayloads = {
 	"mint:added": ManagerMintWithKeysetsDto;
 	"mint:updated": ManagerMintWithKeysetsDto;
@@ -97,6 +122,10 @@ export type ManagerEventPayloads = {
 		mintUrl: string;
 		secrets: string[];
 	};
+	"history:updated": {
+		mintUrl: string;
+		entry: ManagerHistoryEntryDto;
+	};
 };
 
 export type ManagerEventSubscriptionDto = {
@@ -121,6 +150,11 @@ export type ManagerAddMintParams = {
 
 export type ManagerMintUrlParams = {
 	mintUrl: string;
+};
+
+export type ManagerHistoryPaginationParams = {
+	offset?: number;
+	limit?: number;
 };
 
 export type ManagerRpcRequests = {
@@ -163,6 +197,10 @@ export type ManagerRpcRequests = {
 	managerWalletBalancesTotalByUnit: {
 		params: ManagerBalanceScopeDto | undefined;
 		response: ManagerBalancesByUnitDto;
+	};
+	managerHistoryGetPaginatedHistory: {
+		params: ManagerHistoryPaginationParams;
+		response: ManagerHistoryEntryDto[];
 	};
 };
 

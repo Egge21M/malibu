@@ -1,4 +1,4 @@
-import { Amount, type Manager } from "@cashu/coco-core";
+import { Amount, type HistoryEntry, type Manager } from "@cashu/coco-core";
 import type {
 	ManagerAddMintParams,
 	ManagerBalanceScopeDto,
@@ -9,14 +9,26 @@ import type {
 	ManagerEventDto,
 	ManagerEventName,
 	ManagerEventPayloads,
+	ManagerHistoryEntryDto,
+	ManagerHistoryPaginationParams,
 	ManagerMintDto,
 	ManagerEventSubscriptionDto,
 	ManagerMintUrlParams,
 	ManagerMintWithKeysetsDto,
 } from "@/lib/manager-rpc";
 
+type RemoteManagerEventPayloads = Omit<
+	ManagerEventPayloads,
+	"history:updated"
+> & {
+	"history:updated": {
+		mintUrl: string;
+		entry: HistoryEntry;
+	};
+};
+
 type ManagerEventHandler<TEventName extends ManagerEventName> = (
-	payload: ManagerEventPayloads[TEventName],
+	payload: RemoteManagerEventPayloads[TEventName],
 ) => void | Promise<void>;
 
 type RemoteManagerRpc = {
@@ -43,6 +55,9 @@ type RemoteManagerRpc = {
 		managerWalletBalancesTotalByUnit: (
 			params?: ManagerBalanceScopeDto,
 		) => Promise<ManagerBalancesByUnitDto>;
+		managerHistoryGetPaginatedHistory: (
+			params: ManagerHistoryPaginationParams,
+		) => Promise<ManagerHistoryEntryDto[]>;
 	};
 	send: {
 		managerEventSubscribe: (payload: ManagerEventSubscriptionDto) => void;
@@ -100,6 +115,17 @@ class RemoteCocoManager {
 					await this.rpc.request.managerWalletBalancesTotalByUnit(scope),
 				),
 		}),
+	});
+
+	readonly history = unsupportedAwareObject("Remote Coco manager history API", {
+		getPaginatedHistory: async (offset?: number, limit?: number) => {
+			const entries =
+				await this.rpc.request.managerHistoryGetPaginatedHistory({
+					offset,
+					limit,
+				});
+			return entries.map(rehydrateHistoryEntry);
+		},
 	});
 
 	constructor(private readonly rpc: RemoteManagerRpc) {}
@@ -164,14 +190,14 @@ class RemoteCocoManager {
 
 		const payload = rehydrateManagerEventPayload(event);
 		for (const listener of listeners) {
-			void listener(payload as ManagerEventPayloads[ManagerEventName]);
+			void listener(payload as RemoteManagerEventPayloads[ManagerEventName]);
 		}
 	};
 }
 
 export function createRemoteCocoManager(rpc: RemoteManagerRpc): Manager {
 	return unsupportedAwareObject("Remote Coco manager", new RemoteCocoManager(rpc), {
-		allowProperties: new Set(["mint", "wallet", "on", "off"]),
+		allowProperties: new Set(["mint", "wallet", "history", "on", "off"]),
 	}) as unknown as Manager;
 }
 
@@ -219,6 +245,13 @@ function rehydrateBalanceSnapshot(balance: ManagerBalanceSnapshotDto) {
 }
 
 function rehydrateManagerEventPayload(event: ManagerEventDto) {
+	if (event.event === "history:updated") {
+		return {
+			mintUrl: event.payload.mintUrl,
+			entry: rehydrateHistoryEntry(event.payload.entry),
+		};
+	}
+
 	if (event.event === "proofs:saved") {
 		return {
 			...event.payload,
@@ -240,6 +273,13 @@ function rehydrateManagerEventPayload(event: ManagerEventDto) {
 	}
 
 	return event.payload;
+}
+
+function rehydrateHistoryEntry(entry: ManagerHistoryEntryDto): HistoryEntry {
+	return {
+		...entry,
+		amount: Amount.from(entry.amount),
+	} as HistoryEntry;
 }
 
 function unsupportedAwareObject<TTarget extends object>(

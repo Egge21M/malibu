@@ -74,6 +74,11 @@ const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 					params,
 				);
 			},
+			managerHistoryGetPaginatedHistory: async (params) => {
+				return managerRpcRequestHandlers.managerHistoryGetPaginatedHistory(
+					params,
+				);
+			},
 			snapshot: () => walletService.snapshot(),
 			addMint: (params) => walletService.addMint(params),
 			restoreMint: (params) => walletService.restoreMint(params),
