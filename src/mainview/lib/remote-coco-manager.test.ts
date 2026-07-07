@@ -46,13 +46,6 @@ type RemoteMintManagerSurface = {
 	};
 	ops: {
 		mint: {
-			recovery: {
-				run: () => Promise<void>;
-				inProgress: () => Promise<boolean>;
-			};
-			diagnostics: {
-				isLocked: (operationId: string) => Promise<boolean>;
-			};
 			prepare: (input: {
 				quote: {
 					mintUrl: string;
@@ -261,17 +254,6 @@ function createFakeRpc() {
 					calls.push(["managerMintOpsListInFlight"]);
 					return [mintOperation("mint-op-1", "executing", "13")];
 				},
-				managerMintOpsRecoveryRun: async () => {
-					calls.push(["managerMintOpsRecoveryRun"]);
-				},
-				managerMintOpsRecoveryInProgress: async () => {
-					calls.push(["managerMintOpsRecoveryInProgress"]);
-					return true;
-				},
-				managerMintOpsDiagnosticsIsLocked: async (params: unknown) => {
-					calls.push(["managerMintOpsDiagnosticsIsLocked", params]);
-					return true;
-				},
 			},
 			send: {
 				managerEventSubscribe: (params: unknown) => {
@@ -479,30 +461,6 @@ describe("createRemoteCocoManager", () => {
 		await expect(manager.ops.mint.finalize("mint-op-1")).rejects.toThrow(
 			"Mint quote expired",
 		);
-	});
-
-	it("forwards Coco React mint operation recovery and diagnostics calls", async () => {
-		const fake = createFakeRpc();
-		const manager = createRemoteCocoManager(
-			fake.rpc,
-		) as unknown as RemoteMintManagerSurface;
-
-		await manager.ops.mint.recovery.run();
-		await expect(manager.ops.mint.recovery.inProgress()).resolves.toBe(true);
-		await expect(
-			manager.ops.mint.diagnostics.isLocked("mint-op-1"),
-		).resolves.toBe(true);
-
-		expect(fake.calls).toEqual([
-			["managerMintOpsRecoveryRun"],
-			["managerMintOpsRecoveryInProgress"],
-			[
-				"managerMintOpsDiagnosticsIsLocked",
-				{
-					operationId: "mint-op-1",
-				},
-			],
-		]);
 	});
 
 	it("supports a hook-equivalent history consumer refreshing from history:updated events", async () => {

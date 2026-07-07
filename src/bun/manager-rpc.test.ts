@@ -131,15 +131,6 @@ describe("manager RPC handlers", () => {
 		await expect(handlers.managerMintOpsListInFlight()).resolves.toEqual([
 			serializedMintOperation("mint-op-1", "executing", "13"),
 		]);
-		await expect(handlers.managerMintOpsRecoveryRun()).resolves.toBeUndefined();
-		await expect(handlers.managerMintOpsRecoveryInProgress()).resolves.toBe(
-			true,
-		);
-		await expect(
-			handlers.managerMintOpsDiagnosticsIsLocked({
-				operationId: "mint-op-1",
-			}),
-		).resolves.toBe(true);
 
 		expect(calls).toEqual([
 			["getAllMints"],
@@ -213,9 +204,6 @@ describe("manager RPC handlers", () => {
 			],
 			["mintOps.listPending"],
 			["mintOps.listInFlight"],
-			["mintOps.recovery.run"],
-			["mintOps.recovery.inProgress"],
-			["mintOps.diagnostics.isLocked", "mint-op-1"],
 		]);
 	});
 
@@ -484,21 +472,6 @@ function createFakeManager(calls: unknown[]) {
 		},
 		ops: {
 			mint: {
-				recovery: {
-					run: async () => {
-						calls.push(["mintOps.recovery.run"]);
-					},
-					inProgress: () => {
-						calls.push(["mintOps.recovery.inProgress"]);
-						return true;
-					},
-				},
-				diagnostics: {
-					isLocked: (operationId: string) => {
-						calls.push(["mintOps.diagnostics.isLocked", operationId]);
-						return true;
-					},
-				},
 				prepare: async (input: unknown) => {
 					calls.push(["mintOps.prepare", input]);
 					return rawMintOperation("mint-op-1", "pending", amountLike("5"));

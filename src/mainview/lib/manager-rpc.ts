@@ -313,18 +313,6 @@ export type ManagerRpcRequests = {
 		params: undefined;
 		response: ManagerMintOperationDto[];
 	};
-	managerMintOpsRecoveryRun: {
-		params: undefined;
-		response: void;
-	};
-	managerMintOpsRecoveryInProgress: {
-		params: undefined;
-		response: boolean;
-	};
-	managerMintOpsDiagnosticsIsLocked: {
-		params: ManagerMintOperationIdParams;
-		response: boolean;
-	};
 };
 
 export type ManagerRpcBunMessages = {
