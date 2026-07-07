@@ -104,6 +104,13 @@ type ManagerReceiveOperationLike = Omit<
 };
 
 type ManagerReceiveOpsApiLike = {
+	recovery: {
+		run: () => Promise<void>;
+		inProgress: () => boolean;
+	};
+	diagnostics: {
+		isLocked: (operationId: string) => boolean;
+	};
 	prepare: (
 		params: ManagerPrepareReceiveParams,
 	) => Promise<ManagerReceiveOperationLike>;
@@ -171,6 +178,11 @@ type ManagerRpcRequestHandlers = {
 	managerReceiveCancel: (params: ManagerCancelOperationParams) => Promise<void>;
 	managerReceiveListPrepared: () => Promise<ManagerReceiveOperationDto[]>;
 	managerReceiveListInFlight: () => Promise<ManagerReceiveOperationDto[]>;
+	managerReceiveRecoveryRun: () => Promise<void>;
+	managerReceiveRecoveryInProgress: () => Promise<boolean>;
+	managerReceiveDiagnosticsIsLocked: (
+		params: ManagerOperationIdParams,
+	) => Promise<boolean>;
 };
 
 export function createManagerRpcRequestHandlers(
@@ -273,6 +285,18 @@ export function createManagerRpcRequestHandlers(
 			return (await manager.ops.receive.listInFlight()).map(
 				serializeReceiveOperation,
 			);
+		},
+		managerReceiveRecoveryRun: async () => {
+			const manager = await getManager();
+			await manager.ops.receive.recovery.run();
+		},
+		managerReceiveRecoveryInProgress: async () => {
+			const manager = await getManager();
+			return manager.ops.receive.recovery.inProgress();
+		},
+		managerReceiveDiagnosticsIsLocked: async ({ operationId }) => {
+			const manager = await getManager();
+			return manager.ops.receive.diagnostics.isLocked(operationId);
 		},
 	};
 }

@@ -100,6 +100,17 @@ const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 			managerReceiveListInFlight: async () => {
 				return managerRpcRequestHandlers.managerReceiveListInFlight();
 			},
+			managerReceiveRecoveryRun: async () => {
+				return managerRpcRequestHandlers.managerReceiveRecoveryRun();
+			},
+			managerReceiveRecoveryInProgress: async () => {
+				return managerRpcRequestHandlers.managerReceiveRecoveryInProgress();
+			},
+			managerReceiveDiagnosticsIsLocked: async (params) => {
+				return managerRpcRequestHandlers.managerReceiveDiagnosticsIsLocked(
+					params,
+				);
+			},
 			snapshot: () => walletService.snapshot(),
 			addMint: (params) => walletService.addMint(params),
 			restoreMint: (params) => walletService.restoreMint(params),
