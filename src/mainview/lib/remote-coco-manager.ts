@@ -23,6 +23,7 @@ import type {
 	ManagerMintWithKeysetsDto,
 	ManagerOperationIdParams,
 	ManagerPrepareReceiveParams,
+	ManagerPreparedReceiveOperationDto,
 	ManagerReceiveOperationDto,
 } from "@/lib/manager-rpc";
 
@@ -87,7 +88,7 @@ type RemoteManagerRpc = {
 		) => Promise<ManagerHistoryEntryDto[]>;
 		managerReceivePrepare: (
 			params: ManagerPrepareReceiveParams,
-		) => Promise<ManagerReceiveOperationDto>;
+		) => Promise<ManagerPreparedReceiveOperationDto>;
 		managerReceiveExecute: (
 			params: ManagerOperationIdParams,
 		) => Promise<ManagerReceiveOperationDto>;
@@ -98,7 +99,7 @@ type RemoteManagerRpc = {
 			params: ManagerOperationIdParams,
 		) => Promise<ManagerReceiveOperationDto>;
 		managerReceiveCancel: (params: ManagerCancelOperationParams) => Promise<void>;
-		managerReceiveListPrepared: () => Promise<ManagerReceiveOperationDto[]>;
+		managerReceiveListPrepared: () => Promise<ManagerPreparedReceiveOperationDto[]>;
 		managerReceiveListInFlight: () => Promise<ManagerReceiveOperationDto[]>;
 	};
 	send: {

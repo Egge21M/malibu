@@ -18,6 +18,7 @@ import type {
 	ManagerMintWithKeysetsDto,
 	ManagerOperationIdParams,
 	ManagerPrepareReceiveParams,
+	ManagerPreparedReceiveOperationDto,
 	ManagerProofDto,
 	ManagerReceiveOperationDto,
 } from "../mainview/lib/manager-rpc.ts";
@@ -103,15 +104,22 @@ type ManagerReceiveOperationLike = Omit<
 	state: string;
 };
 
+type ManagerPreparedReceiveOperationLike =
+	ManagerReceiveOperationLike & {
+		state: "prepared";
+		fee: unknown;
+		outputData: unknown;
+	};
+
 type ManagerReceiveOpsApiLike = {
 	prepare: (
 		params: ManagerPrepareReceiveParams,
-	) => Promise<ManagerReceiveOperationLike>;
+	) => Promise<ManagerPreparedReceiveOperationLike>;
 	execute: (operationId: string) => Promise<ManagerReceiveOperationLike>;
 	get: (operationId: string) => Promise<ManagerReceiveOperationLike | null>;
 	refresh: (operationId: string) => Promise<ManagerReceiveOperationLike>;
 	cancel: (operationId: string, reason?: string) => Promise<void>;
-	listPrepared: () => Promise<ManagerReceiveOperationLike[]>;
+	listPrepared: () => Promise<ManagerPreparedReceiveOperationLike[]>;
 	listInFlight: () => Promise<ManagerReceiveOperationLike[]>;
 };
 
@@ -158,7 +166,7 @@ type ManagerRpcRequestHandlers = {
 	) => Promise<ManagerHistoryEntryDto[]>;
 	managerReceivePrepare: (
 		params: ManagerPrepareReceiveParams,
-	) => Promise<ManagerReceiveOperationDto>;
+	) => Promise<ManagerPreparedReceiveOperationDto>;
 	managerReceiveExecute: (
 		params: ManagerOperationIdParams,
 	) => Promise<ManagerReceiveOperationDto>;
@@ -169,7 +177,7 @@ type ManagerRpcRequestHandlers = {
 		params: ManagerOperationIdParams,
 	) => Promise<ManagerReceiveOperationDto>;
 	managerReceiveCancel: (params: ManagerCancelOperationParams) => Promise<void>;
-	managerReceiveListPrepared: () => Promise<ManagerReceiveOperationDto[]>;
+	managerReceiveListPrepared: () => Promise<ManagerPreparedReceiveOperationDto[]>;
 	managerReceiveListInFlight: () => Promise<ManagerReceiveOperationDto[]>;
 };
 
@@ -237,7 +245,7 @@ export function createManagerRpcRequestHandlers(
 		},
 		managerReceivePrepare: async (params) => {
 			const manager = await getManager();
-			return serializeReceiveOperation(
+			return serializePreparedReceiveOperation(
 				await manager.ops.receive.prepare(params),
 			);
 		},
@@ -265,7 +273,7 @@ export function createManagerRpcRequestHandlers(
 		managerReceiveListPrepared: async () => {
 			const manager = await getManager();
 			return (await manager.ops.receive.listPrepared()).map(
-				serializeReceiveOperation,
+				serializePreparedReceiveOperation,
 			);
 		},
 		managerReceiveListInFlight: async () => {
@@ -547,6 +555,12 @@ function serializeReceiveOperation(
 			operation.fee === undefined ? undefined : serializeAmount(operation.fee),
 		outputData: operation.outputData,
 	};
+}
+
+function serializePreparedReceiveOperation(
+	operation: ManagerPreparedReceiveOperationLike,
+): ManagerPreparedReceiveOperationDto {
+	return serializeReceiveOperation(operation) as ManagerPreparedReceiveOperationDto;
 }
 
 function serializeAmount(input: unknown): string {

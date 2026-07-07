@@ -1,4 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import { Amount } from "@cashu/coco-core";
+import type { Token } from "@cashu/cashu-ts";
 import {
 	createManagerEventForwarder,
 	createManagerRpcRequestHandlers,
@@ -81,9 +83,22 @@ describe("manager RPC handlers", () => {
 		await expect(
 			handlers.managerHistoryGetPaginatedHistory({ offset: 10, limit: 5 }),
 		).resolves.toEqual([serializedHistoryEntry("history-1", "123")]);
+		const decodedToken: Token = {
+			mint: "https://mint.example",
+			proofs: [
+				{
+					id: "proof-1",
+					amount: Amount.from(21),
+					secret: "secret-1",
+					C: "C-1",
+				},
+			],
+			memo: "decoded",
+			unit: "sat",
+		};
 		await expect(
-			handlers.managerReceivePrepare({ token: "cashu-token" }),
-		).resolves.toEqual(serializedReceiveOperation("receive-1", "prepared"));
+			handlers.managerReceivePrepare({ token: decodedToken }),
+		).resolves.toEqual(serializedPreparedReceiveOperation("receive-1"));
 		await expect(
 			handlers.managerReceiveExecute({ operationId: "receive-1" }),
 		).resolves.toEqual(serializedReceiveOperation("receive-1", "finalized"));
@@ -98,7 +113,7 @@ describe("manager RPC handlers", () => {
 			reason: "user cancelled",
 		});
 		await expect(handlers.managerReceiveListPrepared()).resolves.toEqual([
-			serializedReceiveOperation("receive-1", "prepared"),
+			serializedPreparedReceiveOperation("receive-1"),
 		]);
 		await expect(handlers.managerReceiveListInFlight()).resolves.toEqual([
 			serializedReceiveOperation("receive-2", "executing"),
@@ -151,7 +166,7 @@ describe("manager RPC handlers", () => {
 				},
 			],
 			["getPaginatedHistory", 10, 5],
-			["receive.prepare", { token: "cashu-token" }],
+			["receive.prepare", { token: decodedToken }],
 			["receive.execute", "receive-1"],
 			["receive.get", "receive-1"],
 			["receive.refresh", "receive-1"],
@@ -409,9 +424,11 @@ function createFakeManager(calls: unknown[]) {
 		},
 		ops: {
 			receive: {
-				prepare: async (params: { token: string }) => {
+				prepare: async (params: {
+					token: Token | string;
+				}) => {
 					calls.push(["receive.prepare", params]);
-					return rawReceiveOperation("receive-1", "prepared");
+					return rawPreparedReceiveOperation("receive-1");
 				},
 				execute: async (operationId: string) => {
 					calls.push(["receive.execute", operationId]);
@@ -430,7 +447,7 @@ function createFakeManager(calls: unknown[]) {
 				},
 				listPrepared: async () => {
 					calls.push(["receive.listPrepared"]);
-					return [rawReceiveOperation("receive-1", "prepared")];
+					return [rawPreparedReceiveOperation("receive-1")];
 				},
 				listInFlight: async () => {
 					calls.push(["receive.listInFlight"]);
@@ -598,6 +615,13 @@ function rawReceiveOperation(id: string, state: string) {
 	};
 }
 
+function rawPreparedReceiveOperation(id: string) {
+	return {
+		...rawReceiveOperation(id, "prepared"),
+		state: "prepared" as const,
+	};
+}
+
 function serializedReceiveOperation(
 	id: string,
 	state: ManagerReceiveOperationDto["state"],
@@ -622,6 +646,16 @@ function serializedReceiveOperation(
 		source: { type: "manual-token" },
 		fee: "1",
 		outputData: { keep: [{ amount: 20 }] },
+	};
+}
+
+function serializedPreparedReceiveOperation(id: string) {
+	return serializedReceiveOperation(id, "prepared") as ReturnType<
+		typeof serializedReceiveOperation
+	> & {
+		state: "prepared";
+		fee: string;
+		outputData: unknown;
 	};
 }
 

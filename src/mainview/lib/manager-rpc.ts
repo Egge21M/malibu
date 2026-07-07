@@ -1,3 +1,5 @@
+import type { Token } from "@cashu/cashu-ts";
+
 export type ManagerMintDto = {
 	mintUrl: string;
 	name: string;
@@ -140,6 +142,13 @@ export type ManagerReceiveOperationDto = {
 	outputData?: unknown;
 };
 
+export type ManagerPreparedReceiveOperationDto =
+	ManagerReceiveOperationDto & {
+		state: "prepared";
+		fee: string;
+		outputData: unknown;
+	};
+
 export type ManagerEventPayloads = {
 	"mint:added": ManagerMintWithKeysetsDto;
 	"mint:updated": ManagerMintWithKeysetsDto;
@@ -216,7 +225,7 @@ export type ManagerHistoryPaginationParams = {
 };
 
 export type ManagerPrepareReceiveParams = {
-	token: string;
+	token: Token | string;
 };
 
 export type ManagerOperationIdParams = {
@@ -274,7 +283,7 @@ export type ManagerRpcRequests = {
 	};
 	managerReceivePrepare: {
 		params: ManagerPrepareReceiveParams;
-		response: ManagerReceiveOperationDto;
+		response: ManagerPreparedReceiveOperationDto;
 	};
 	managerReceiveExecute: {
 		params: ManagerOperationIdParams;
@@ -294,7 +303,7 @@ export type ManagerRpcRequests = {
 	};
 	managerReceiveListPrepared: {
 		params: undefined;
-		response: ManagerReceiveOperationDto[];
+		response: ManagerPreparedReceiveOperationDto[];
 	};
 	managerReceiveListInFlight: {
 		params: undefined;

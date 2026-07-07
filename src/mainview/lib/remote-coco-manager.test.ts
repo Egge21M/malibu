@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import type { HistoryEntry } from "@cashu/coco-core";
+import { Amount, type HistoryEntry } from "@cashu/coco-core";
+import type { Token } from "@cashu/cashu-ts";
 import type {
 	ManagerBalanceScopeDto,
 	ManagerBalancesByMintAndUnitDto,
@@ -45,7 +46,9 @@ type RemoteMintManagerSurface = {
 	};
 	ops: {
 		receive: {
-			prepare: (params: { token: string }) => Promise<ReceiveOperationLike>;
+			prepare: (params: {
+				token: Token | string;
+			}) => Promise<ReceiveOperationLike>;
 			execute: (
 				operationOrId: ReceiveOperationLike | string,
 			) => Promise<ReceiveOperationLike>;
@@ -208,7 +211,7 @@ function createFakeRpc() {
 				},
 				managerReceivePrepare: async (params: unknown) => {
 					calls.push(["managerReceivePrepare", params]);
-					return receiveOperation("receive-1", "prepared");
+					return preparedReceiveOperation("receive-1");
 				},
 				managerReceiveExecute: async (params: unknown) => {
 					calls.push(["managerReceiveExecute", params]);
@@ -227,7 +230,7 @@ function createFakeRpc() {
 				},
 				managerReceiveListPrepared: async () => {
 					calls.push(["managerReceiveListPrepared"]);
-					return [receiveOperation("receive-1", "prepared")];
+					return [preparedReceiveOperation("receive-1")];
 				},
 				managerReceiveListInFlight: async () => {
 					calls.push(["managerReceiveListInFlight"]);
@@ -401,7 +404,20 @@ describe("createRemoteCocoManager", () => {
 			fake.rpc,
 		) as unknown as RemoteMintManagerSurface;
 
-		const prepared = await manager.ops.receive.prepare({ token: "cashu-token" });
+		const decodedToken: Token = {
+			mint: "https://mint.example",
+			proofs: [
+				{
+					id: "proof-1",
+					amount: Amount.from(21),
+					secret: "secret-1",
+					C: "C-1",
+				},
+			],
+			memo: "decoded",
+			unit: "sat",
+		};
+		const prepared = await manager.ops.receive.prepare({ token: decodedToken });
 		const finalized = await manager.ops.receive.execute(prepared);
 		const fetched = await manager.ops.receive.get("receive-1");
 		const refreshed = await manager.ops.receive.refresh("receive-1");
@@ -415,10 +431,12 @@ describe("createRemoteCocoManager", () => {
 		expect(refreshed.state).toBe("executing");
 		expect(prepared.amount.add("2").toString()).toBe("23");
 		expect(prepared.fee?.add("2").toString()).toBe("3");
+		expect(prepared.outputData).toEqual({ keep: [{ amount: 20 }] });
 		expect(preparedList[0]?.amount.toString()).toBe("21");
+		expect(preparedList[0]?.state).toBe("prepared");
 		expect(inFlightList[0]?.state).toBe("executing");
 		expect(fake.calls).toEqual([
-			["managerReceivePrepare", { token: "cashu-token" }],
+			["managerReceivePrepare", { token: decodedToken }],
 			["managerReceiveExecute", { operationId: "receive-1" }],
 			["managerReceiveGet", { operationId: "receive-1" }],
 			["managerReceiveRefresh", { operationId: "receive-1" }],
@@ -727,6 +745,15 @@ function receiveOperation(
 		updatedAt: 30,
 		state,
 		source: { type: "manual-token" },
+		fee: "1",
+		outputData: { keep: [{ amount: 20 }] },
+	};
+}
+
+function preparedReceiveOperation(id: string) {
+	return {
+		...receiveOperation(id, "prepared"),
+		state: "prepared" as const,
 		fee: "1",
 		outputData: { keep: [{ amount: 20 }] },
 	};
