@@ -103,15 +103,6 @@ describe("manager RPC handlers", () => {
 		await expect(handlers.managerReceiveListInFlight()).resolves.toEqual([
 			serializedReceiveOperation("receive-2", "executing"),
 		]);
-		await handlers.managerReceiveRecoveryRun();
-		await expect(
-			handlers.managerReceiveRecoveryInProgress(),
-		).resolves.toBe(true);
-		await expect(
-			handlers.managerReceiveDiagnosticsIsLocked({
-				operationId: "receive-1",
-			}),
-		).resolves.toBe(true);
 
 		expect(calls).toEqual([
 			["getAllMints"],
@@ -167,9 +158,6 @@ describe("manager RPC handlers", () => {
 			["receive.cancel", "receive-1", "user cancelled"],
 			["receive.listPrepared"],
 			["receive.listInFlight"],
-			["receive.recovery.run"],
-			["receive.recovery.inProgress"],
-			["receive.diagnostics.isLocked", "receive-1"],
 		]);
 	});
 
@@ -421,21 +409,6 @@ function createFakeManager(calls: unknown[]) {
 		},
 		ops: {
 			receive: {
-				recovery: {
-					run: async () => {
-						calls.push(["receive.recovery.run"]);
-					},
-					inProgress: () => {
-						calls.push(["receive.recovery.inProgress"]);
-						return true;
-					},
-				},
-				diagnostics: {
-					isLocked: (operationId: string) => {
-						calls.push(["receive.diagnostics.isLocked", operationId]);
-						return true;
-					},
-				},
 				prepare: async (params: { token: string }) => {
 					calls.push(["receive.prepare", params]);
 					return rawReceiveOperation("receive-1", "prepared");

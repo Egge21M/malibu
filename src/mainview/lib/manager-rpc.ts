@@ -300,18 +300,6 @@ export type ManagerRpcRequests = {
 		params: undefined;
 		response: ManagerReceiveOperationDto[];
 	};
-	managerReceiveRecoveryRun: {
-		params: undefined;
-		response: void;
-	};
-	managerReceiveRecoveryInProgress: {
-		params: undefined;
-		response: boolean;
-	};
-	managerReceiveDiagnosticsIsLocked: {
-		params: ManagerOperationIdParams;
-		response: boolean;
-	};
 };
 
 export type ManagerRpcBunMessages = {

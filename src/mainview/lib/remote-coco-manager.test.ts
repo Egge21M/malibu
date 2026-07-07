@@ -54,13 +54,6 @@ type RemoteMintManagerSurface = {
 			cancel: (operationId: string, reason?: string) => Promise<void>;
 			listPrepared: () => Promise<ReceiveOperationLike[]>;
 			listInFlight: () => Promise<ReceiveOperationLike[]>;
-			recovery: {
-				run: () => Promise<void>;
-				inProgress: () => Promise<boolean>;
-			};
-			diagnostics: {
-				isLocked: (operationId: string) => Promise<boolean>;
-			};
 		};
 	};
 	on: {
@@ -240,17 +233,6 @@ function createFakeRpc() {
 					calls.push(["managerReceiveListInFlight"]);
 					return [receiveOperation("receive-2", "executing")];
 				},
-				managerReceiveRecoveryRun: async () => {
-					calls.push(["managerReceiveRecoveryRun"]);
-				},
-				managerReceiveRecoveryInProgress: async () => {
-					calls.push(["managerReceiveRecoveryInProgress"]);
-					return true;
-				},
-				managerReceiveDiagnosticsIsLocked: async (params: unknown) => {
-					calls.push(["managerReceiveDiagnosticsIsLocked", params]);
-					return true;
-				},
 			},
 			send: {
 				managerEventSubscribe: (params: unknown) => {
@@ -426,11 +408,6 @@ describe("createRemoteCocoManager", () => {
 		await manager.ops.receive.cancel("receive-1", "user cancelled");
 		const preparedList = await manager.ops.receive.listPrepared();
 		const inFlightList = await manager.ops.receive.listInFlight();
-		await manager.ops.receive.recovery.run();
-		const recoveryInProgress =
-			await manager.ops.receive.recovery.inProgress();
-		const isLocked =
-			await manager.ops.receive.diagnostics.isLocked("receive-1");
 
 		expect(prepared.state).toBe("prepared");
 		expect(finalized.state).toBe("finalized");
@@ -440,8 +417,6 @@ describe("createRemoteCocoManager", () => {
 		expect(prepared.fee?.add("2").toString()).toBe("3");
 		expect(preparedList[0]?.amount.toString()).toBe("21");
 		expect(inFlightList[0]?.state).toBe("executing");
-		expect(recoveryInProgress).toBe(true);
-		expect(isLocked).toBe(true);
 		expect(fake.calls).toEqual([
 			["managerReceivePrepare", { token: "cashu-token" }],
 			["managerReceiveExecute", { operationId: "receive-1" }],
@@ -453,12 +428,6 @@ describe("createRemoteCocoManager", () => {
 			],
 			["managerReceiveListPrepared"],
 			["managerReceiveListInFlight"],
-			["managerReceiveRecoveryRun"],
-			["managerReceiveRecoveryInProgress"],
-			[
-				"managerReceiveDiagnosticsIsLocked",
-				{ operationId: "receive-1" },
-			],
 		]);
 	});
 
