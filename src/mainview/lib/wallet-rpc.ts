@@ -1,3 +1,9 @@
+import type {
+	ManagerRpcBunMessages,
+	ManagerRpcRequests,
+	ManagerRpcWebviewMessages,
+} from "@/lib/manager-rpc";
+
 export type BalanceSnapshotDto = {
 	spendable: string;
 	reserved: string;
@@ -123,7 +129,7 @@ export type PrepareMeltParams = {
 
 export type WalletRpcSchema = {
 	bun: {
-		requests: {
+		requests: ManagerRpcRequests & {
 			snapshot: {
 				params: undefined;
 				response: WalletSnapshot;
@@ -198,10 +204,10 @@ export type WalletRpcSchema = {
 				response: WalletActionResult<WalletOperationDto>;
 			};
 		};
-		messages: {};
+		messages: ManagerRpcBunMessages;
 	};
 	webview: {
 		requests: {};
-		messages: {};
+		messages: ManagerRpcWebviewMessages;
 	};
 };

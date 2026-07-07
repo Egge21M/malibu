@@ -4,6 +4,7 @@
 	"type": "module",
 	"description": "Cashu wallet powered by Coco in the Electrobun main thread with a React renderer",
 	"scripts": {
+		"test": "bun test",
 		"start": "vite build && env GDK_SCALE=2 electrobun dev",
 		"dev": "env GDK_SCALE=2 electrobun dev --watch",
 		"dev:hmr": "concurrently \"bun run hmr\" \"bun run start\"",

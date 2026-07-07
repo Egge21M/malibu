@@ -9,10 +9,12 @@ import type {
 	PrepareSendParams,
 	WalletRpcSchema,
 } from "@/lib/wallet-rpc";
+import { createRemoteCocoManager } from "@/lib/remote-coco-manager";
 
 type WalletRpc = ReturnType<typeof Electroview.defineRPC<WalletRpcSchema>>;
 
 let rpc: WalletRpc | undefined;
+let remoteCocoManager: ReturnType<typeof createRemoteCocoManager> | undefined;
 
 function isElectrobunWebview() {
 	return typeof window !== "undefined" && "__electrobun" in window;
@@ -68,3 +70,8 @@ export const walletClient = {
 	refreshMeltOperation: (params: OperationIdParams) =>
 		getRpc().request.refreshMeltOperation(params),
 };
+
+export function getRemoteCocoManager() {
+	remoteCocoManager ??= createRemoteCocoManager(getRpc());
+	return remoteCocoManager;
+}

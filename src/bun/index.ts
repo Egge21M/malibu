@@ -1,4 +1,8 @@
 import { BrowserView, BrowserWindow, Updater } from "electrobun/bun";
+import {
+	createManagerMintEventForwarder,
+	createManagerRpcRequestHandlers,
+} from "./manager-rpc.ts";
 import { CashuWalletService } from "./wallet-service.ts";
 import type { WalletRpcSchema } from "../mainview/lib/wallet-rpc.ts";
 
@@ -24,10 +28,33 @@ async function getMainViewUrl(): Promise<string> {
 
 const url = await getMainViewUrl();
 const walletService = new CashuWalletService();
+const managerRpcRequestHandlers = createManagerRpcRequestHandlers(() =>
+	walletService.getCocoManager(),
+);
+const managerMintEventForwarder = createManagerMintEventForwarder(
+	() => walletService.getCocoManager(),
+	(event) => walletRpc.send.managerEvent(event),
+);
+
 const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 	maxRequestTime: 120_000,
 	handlers: {
 		requests: {
+			managerMintGetAllMints: async () => {
+				return managerRpcRequestHandlers.managerMintGetAllMints();
+			},
+			managerMintAddMint: async (params) => {
+				return managerRpcRequestHandlers.managerMintAddMint(params);
+			},
+			managerMintTrustMint: async (params) => {
+				return managerRpcRequestHandlers.managerMintTrustMint(params);
+			},
+			managerMintUntrustMint: async (params) => {
+				return managerRpcRequestHandlers.managerMintUntrustMint(params);
+			},
+			managerMintIsTrustedMint: async (params) => {
+				return managerRpcRequestHandlers.managerMintIsTrustedMint(params);
+			},
 			snapshot: () => walletService.snapshot(),
 			addMint: (params) => walletService.addMint(params),
 			restoreMint: (params) => walletService.restoreMint(params),
@@ -46,6 +73,12 @@ const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 			cancelMelt: (params) => walletService.cancelMelt(params),
 			refreshMeltOperation: (params) =>
 				walletService.refreshMeltOperation(params),
+		},
+		messages: {
+			managerMintEventSubscribe: (params) =>
+				managerMintEventForwarder.subscribe(params),
+			managerMintEventUnsubscribe: (params) =>
+				managerMintEventForwarder.unsubscribe(params),
 		},
 	},
 });
