@@ -1278,12 +1278,12 @@ function SendScreen() {
 				</CardHeader>
 				<CardContent>
 					<Tabs defaultValue="ecash" className="gap-5">
-						<TabsList className="grid h-auto w-full grid-cols-2 sm:w-fit">
-							<TabsTrigger value="ecash" className="h-11">
-								<Send data-icon="inline-start" />
+						<TabsList className="w-full sm:w-fit">
+							<TabsTrigger value="ecash">
+								<Wallet data-icon="inline-start" />
 								Ecash
 							</TabsTrigger>
-							<TabsTrigger value="lightning" className="h-11">
+							<TabsTrigger value="lightning">
 								<Zap data-icon="inline-start" />
 								Lightning
 							</TabsTrigger>
@@ -1496,12 +1496,12 @@ function ReceiveScreen() {
 				</CardHeader>
 				<CardContent>
 					<Tabs defaultValue="ecash" className="gap-5">
-						<TabsList className="grid h-auto w-full grid-cols-2 sm:w-fit">
-							<TabsTrigger value="ecash" className="h-11">
-								<Check data-icon="inline-start" />
+						<TabsList className="w-full sm:w-fit">
+							<TabsTrigger value="ecash">
+								<Wallet data-icon="inline-start" />
 								Ecash
 							</TabsTrigger>
-							<TabsTrigger value="lightning" className="h-11">
+							<TabsTrigger value="lightning">
 								<Download data-icon="inline-start" />
 								Lightning
 							</TabsTrigger>
