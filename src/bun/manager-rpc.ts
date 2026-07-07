@@ -139,13 +139,6 @@ type ManagerMeltQuoteApiLike = {
 };
 
 type ManagerMeltOpsApiLike = {
-	recovery: {
-		run: () => Promise<void>;
-		inProgress: () => boolean;
-	};
-	diagnostics: {
-		isLocked: (operationId: any) => boolean;
-	};
 	prepare: (params: any) => Promise<ManagerMeltOperationLike>;
 	execute: (operationId: any) => Promise<ManagerMeltOperationLike>;
 	get: (operationId: any) => Promise<ManagerMeltOperationLike | null>;
@@ -246,11 +239,6 @@ type ManagerRpcRequestHandlers = {
 		params: ManagerOperationIdWithReasonParams,
 	) => Promise<void>;
 	managerMeltFinalize: (params: ManagerOperationIdParams) => Promise<void>;
-	managerMeltRecoveryRun: () => Promise<void>;
-	managerMeltRecoveryInProgress: () => Promise<boolean>;
-	managerMeltDiagnosticsIsLocked: (
-		params: ManagerOperationIdParams,
-	) => Promise<boolean>;
 };
 
 export function createManagerRpcRequestHandlers(
@@ -381,18 +369,6 @@ export function createManagerRpcRequestHandlers(
 		managerMeltFinalize: async ({ operationId }) => {
 			const manager = await getManager();
 			await manager.ops.melt.finalize(operationId);
-		},
-		managerMeltRecoveryRun: async () => {
-			const manager = await getManager();
-			await manager.ops.melt.recovery.run();
-		},
-		managerMeltRecoveryInProgress: async () => {
-			const manager = await getManager();
-			return manager.ops.melt.recovery.inProgress();
-		},
-		managerMeltDiagnosticsIsLocked: async ({ operationId }) => {
-			const manager = await getManager();
-			return manager.ops.melt.diagnostics.isLocked(operationId);
 		},
 	};
 }

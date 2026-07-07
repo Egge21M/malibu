@@ -59,13 +59,6 @@ type RemoteMintManagerSurface = {
 	};
 	ops: {
 		melt: {
-			recovery: {
-				run: () => Promise<void>;
-				inProgress: () => Promise<boolean>;
-			};
-			diagnostics: {
-				isLocked: (operationId: string) => Promise<boolean>;
-			};
 			prepare: (input: {
 				quote: MeltQuoteLike;
 				feeIndex?: number;
@@ -324,19 +317,6 @@ function createFakeRpc() {
 				},
 				managerMeltFinalize: async (params: unknown) => {
 					calls.push(["managerMeltFinalize", params]);
-				},
-				managerMeltRecoveryRun: async () => {
-					calls.push(["managerMeltRecoveryRun"]);
-				},
-				managerMeltRecoveryInProgress: async () => {
-					calls.push(["managerMeltRecoveryInProgress"]);
-					return true;
-				},
-				managerMeltDiagnosticsIsLocked: async (params: unknown) => {
-					calls.push(["managerMeltDiagnosticsIsLocked", params]);
-					return params && typeof params === "object"
-						? (params as { operationId?: string }).operationId === "melt-1"
-						: false;
 				},
 			},
 			send: {
@@ -622,28 +602,6 @@ describe("createRemoteCocoManager", () => {
 				{ operationId: "melt-1", reason: "retry later" },
 			],
 			["managerMeltFinalize", { operationId: "melt-1" }],
-		]);
-	});
-
-	it("forwards Coco React melt recovery and diagnostics calls", async () => {
-		const fake = createFakeRpc();
-		const manager = createRemoteCocoManager(
-			fake.rpc,
-		) as unknown as RemoteMintManagerSurface;
-
-		await manager.ops.melt.recovery.run();
-		await expect(manager.ops.melt.recovery.inProgress()).resolves.toBe(true);
-		await expect(
-			manager.ops.melt.diagnostics.isLocked("melt-1"),
-		).resolves.toBe(true);
-
-		expect(fake.calls).toEqual([
-			["managerMeltRecoveryRun"],
-			["managerMeltRecoveryInProgress"],
-			[
-				"managerMeltDiagnosticsIsLocked",
-				{ operationId: "melt-1" },
-			],
 		]);
 	});
 
