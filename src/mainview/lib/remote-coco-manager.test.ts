@@ -11,6 +11,8 @@ import type {
 	ManagerMintWithKeysetsDto,
 	ManagerMintOperationDto,
 	ManagerPendingMintCheckResultDto,
+	ManagerSendExecuteResultDto,
+	ManagerSendOperationDto,
 } from "@/lib/manager-rpc";
 import { createRemoteCocoManager } from "@/lib/remote-coco-manager";
 
@@ -68,6 +70,28 @@ type RemoteMintManagerSurface = {
 			listPending: () => Promise<MintOperation[]>;
 			listInFlight: () => Promise<MintOperation[]>;
 		};
+		send: {
+			prepare: (input: {
+				mintUrl: string;
+				amount: string | { amount: string; unit: string };
+				unit?: string;
+				target?: unknown;
+			}) => Promise<RemoteSendOperation>;
+			execute: (
+				operationOrId: string | RemoteSendOperation,
+				options?: { memo?: string },
+			) => Promise<{
+				operation: RemoteSendOperation;
+				token: unknown;
+			}>;
+			get: (operationId: string) => Promise<RemoteSendOperation | null>;
+			listPrepared: () => Promise<RemoteSendOperation[]>;
+			listInFlight: () => Promise<RemoteSendOperation[]>;
+			refresh: (operationId: string) => Promise<RemoteSendOperation>;
+			cancel: (operationId: string) => Promise<void>;
+			reclaim: (operationId: string) => Promise<void>;
+			finalize: (operationId: string) => Promise<void>;
+		};
 	};
 	on: {
 		(
@@ -86,6 +110,10 @@ type RemoteMintManagerSurface = {
 			event: "mint-op:pending",
 			handler: (payload: MintOperationEvent) => void,
 		): () => void;
+		(
+			event: "send:pending",
+			handler: (payload: SendPendingEvent) => void,
+		): () => void;
 	};
 	off: {
 		(
@@ -103,6 +131,10 @@ type RemoteMintManagerSurface = {
 		(
 			event: "mint-op:pending",
 			handler: (payload: MintOperationEvent) => void,
+		): void;
+		(
+			event: "send:pending",
+			handler: (payload: SendPendingEvent) => void,
 		): void;
 	};
 };
@@ -141,6 +173,22 @@ type MintOperationEvent = {
 	mintUrl: string;
 	operationId: string;
 	operation: MintOperation;
+};
+
+type RemoteSendOperation = Omit<
+	ManagerSendOperationDto,
+	"amount" | "fee" | "inputAmount"
+> & {
+	amount: AmountLike;
+	fee?: AmountLike;
+	inputAmount?: AmountLike;
+};
+
+type SendPendingEvent = {
+	mintUrl: string;
+	operationId: string;
+	operation: RemoteSendOperation;
+	token: unknown;
 };
 
 function createFakeRpc() {
@@ -253,6 +301,52 @@ function createFakeRpc() {
 				managerMintOpsListInFlight: async () => {
 					calls.push(["managerMintOpsListInFlight"]);
 					return [mintOperation("mint-op-1", "executing", "13")];
+				},
+				managerSendPrepare: async (params: unknown) => {
+					calls.push(["managerSendPrepare", params]);
+					return sendOperation("send-1", "prepared");
+				},
+				managerSendExecute: async (params: unknown) => {
+					calls.push(["managerSendExecute", params]);
+					return {
+						operation: sendOperation("send-1", "pending", {
+							token: token("send-1"),
+						}),
+						token: token("send-1"),
+					} satisfies ManagerSendExecuteResultDto;
+				},
+				managerSendGet: async (params: unknown) => {
+					calls.push(["managerSendGet", params]);
+					return sendOperation("send-1", "pending", {
+						token: token("send-1"),
+					});
+				},
+				managerSendListPrepared: async () => {
+					calls.push(["managerSendListPrepared"]);
+					return [sendOperation("send-1", "prepared")];
+				},
+				managerSendListInFlight: async () => {
+					calls.push(["managerSendListInFlight"]);
+					return [
+						sendOperation("send-2", "pending", {
+							token: token("send-2"),
+						}),
+					];
+				},
+				managerSendRefresh: async (params: unknown) => {
+					calls.push(["managerSendRefresh", params]);
+					return sendOperation("send-1", "finalized", {
+						token: token("send-1"),
+					});
+				},
+				managerSendCancel: async (params: unknown) => {
+					calls.push(["managerSendCancel", params]);
+				},
+				managerSendReclaim: async (params: unknown) => {
+					calls.push(["managerSendReclaim", params]);
+				},
+				managerSendFinalize: async (params: unknown) => {
+					calls.push(["managerSendFinalize", params]);
 				},
 			},
 			send: {
@@ -449,6 +543,63 @@ describe("createRemoteCocoManager", () => {
 		]);
 	});
 
+	it("forwards Coco React send lifecycle calls and rehydrates operation amounts", async () => {
+		const fake = createFakeRpc();
+		const manager = createRemoteCocoManager(
+			fake.rpc,
+		) as unknown as RemoteMintManagerSurface;
+
+		const prepared = await manager.ops.send.prepare({
+			mintUrl: "https://mint.example",
+			amount: { amount: "21", unit: "sat" },
+			target: { pubkey: "02abc" },
+		});
+		const executed = await manager.ops.send.execute(prepared, {
+			memo: "for coffee",
+		});
+		const current = await manager.ops.send.get("send-1");
+		const preparedOperations = await manager.ops.send.listPrepared();
+		const inFlightOperations = await manager.ops.send.listInFlight();
+		const refreshed = await manager.ops.send.refresh("send-1");
+		await manager.ops.send.cancel("send-1");
+		await manager.ops.send.reclaim("send-1");
+		await manager.ops.send.finalize("send-1");
+
+		expect(prepared.amount.add("2").toString()).toBe("23");
+		expect(prepared.fee?.add("2").toString()).toBe("3");
+		expect(executed.operation.state).toBe("pending");
+		expect(executed.token).toEqual(token("send-1"));
+		expect(current?.token).toEqual(token("send-1"));
+		expect(preparedOperations[0]?.state).toBe("prepared");
+		expect(inFlightOperations[0]?.id).toBe("send-2");
+		expect(refreshed.state).toBe("finalized");
+		expect(fake.calls).toEqual([
+			[
+				"managerSendPrepare",
+				{
+					mintUrl: "https://mint.example",
+					amount: "21",
+					unit: "sat",
+					target: { pubkey: "02abc" },
+				},
+			],
+			[
+				"managerSendExecute",
+				{
+					operationId: "send-1",
+					options: { memo: "for coffee" },
+				},
+			],
+			["managerSendGet", { operationId: "send-1" }],
+			["managerSendListPrepared"],
+			["managerSendListInFlight"],
+			["managerSendRefresh", { operationId: "send-1" }],
+			["managerSendCancel", { operationId: "send-1" }],
+			["managerSendReclaim", { operationId: "send-1" }],
+			["managerSendFinalize", { operationId: "send-1" }],
+		]);
+	});
+
 	it("surfaces mint operation RPC errors without adapter wrapping", async () => {
 		const fake = createFakeRpc();
 		fake.rpc.request.managerMintOpsFinalize = async () => {
@@ -460,6 +611,20 @@ describe("createRemoteCocoManager", () => {
 
 		await expect(manager.ops.mint.finalize("mint-op-1")).rejects.toThrow(
 			"Mint quote expired",
+		);
+	});
+
+	it("surfaces manager RPC errors from send operations", async () => {
+		const fake = createFakeRpc();
+		fake.rpc.request.managerSendRefresh = async () => {
+			throw new Error("manager refused send refresh");
+		};
+		const manager = createRemoteCocoManager(
+			fake.rpc,
+		) as unknown as RemoteMintManagerSurface;
+
+		await expect(manager.ops.send.refresh("send-1")).rejects.toThrow(
+			"manager refused send refresh",
 		);
 	});
 
@@ -538,6 +703,51 @@ describe("createRemoteCocoManager", () => {
 			["managerEventSubscribe", { event: "mint-op:pending" }],
 			["managerMintOpsGet", { operationId: "mint-op-1" }],
 			["managerEventUnsubscribe", { event: "mint-op:pending" }],
+			["removeMessageListener", "managerEvent"],
+		]);
+	});
+
+	it("supports a hook-equivalent send consumer updating from send lifecycle events", async () => {
+		const fake = createFakeRpc();
+		const manager = createRemoteCocoManager(
+			fake.rpc,
+		) as unknown as RemoteMintManagerSurface;
+		const consumer = createSendOperationConsumer(manager, "send-1");
+
+		await consumer.mount();
+		fake.emit({
+			event: "send:pending",
+			payload: {
+				mintUrl: "https://mint.example",
+				operationId: "send-1",
+				operation: sendOperation("send-1", "pending", {
+					token: token("send-1"),
+				}),
+				token: token("send-1"),
+			},
+		});
+		await Promise.resolve();
+		consumer.unmount();
+		fake.emit({
+			event: "send:pending",
+			payload: {
+				mintUrl: "https://mint.example",
+				operationId: "send-ignored",
+				operation: sendOperation("send-ignored", "pending", {
+					token: token("send-ignored"),
+				}),
+				token: token("send-ignored"),
+			},
+		});
+
+		expect(consumer.current?.state).toBe("pending");
+		expect(consumer.current?.amount.add("2").toString()).toBe("23");
+		expect(consumer.current?.token).toEqual(token("send-1"));
+		expect(fake.calls).toEqual([
+			["managerSendGet", { operationId: "send-1" }],
+			["addMessageListener", "managerEvent"],
+			["managerEventSubscribe", { event: "send:pending" }],
+			["managerEventUnsubscribe", { event: "send:pending" }],
 			["removeMessageListener", "managerEvent"],
 		]);
 	});
@@ -668,9 +878,18 @@ describe("createRemoteCocoManager", () => {
 			'Remote Coco manager history API does not support "getById" yet',
 		);
 		expect(
-			() => (manager.ops as unknown as Record<string, unknown>)["send"],
+			() =>
+				(manager.ops as unknown as Record<string, unknown>)["receive"],
 		).toThrow(
-			'Remote Coco manager ops API does not support "send" yet',
+			'Remote Coco manager operations API does not support "receive" yet',
+		);
+		expect(
+			() =>
+				(
+					manager.ops.send as unknown as Record<string, unknown>
+				)["recover"],
+		).toThrow(
+			'Remote Coco manager send operations API does not support "recover" yet',
 		);
 	});
 });
@@ -790,6 +1009,70 @@ function createMintOperationConsumer(
 			unsubscribe = manager.on("mint-op:pending", (payload) => {
 				if (payload.operationId === operationId) {
 					void refresh();
+				}
+			});
+		},
+		unmount() {
+			unsubscribe?.();
+			unsubscribe = undefined;
+		},
+		};
+	}
+
+function sendOperation(
+	id: string,
+	state: ManagerSendOperationDto["state"],
+	overrides: Partial<ManagerSendOperationDto> = {},
+): ManagerSendOperationDto {
+	return {
+		id,
+		mintUrl: "https://mint.example",
+		amount: "21",
+		unit: "sat",
+		method: "default",
+		methodData: {},
+		state,
+		needsSwap: true,
+		fee: "1",
+		inputAmount: "22",
+		inputProofSecrets: ["secret-1"],
+		outputData: { outputs: [] },
+		createdAt: 12,
+		updatedAt: 13,
+		...overrides,
+	};
+}
+
+function token(operationId: string) {
+	return {
+		token: [
+			{
+				mint: "https://mint.example",
+				proofs: [{ id: operationId, amount: 21 }],
+			},
+		],
+	};
+}
+
+function createSendOperationConsumer(
+	manager: RemoteMintManagerSurface,
+	operationId: string,
+) {
+	let current: RemoteSendOperation | null = null;
+	let unsubscribe: (() => void) | undefined;
+	const refresh = async () => {
+		current = await manager.ops.send.get(operationId);
+	};
+
+	return {
+		get current() {
+			return current;
+		},
+		async mount() {
+			await refresh();
+			unsubscribe = manager.on("send:pending", (payload) => {
+				if (payload.operationId === operationId) {
+					current = payload.operation;
 				}
 			});
 		},

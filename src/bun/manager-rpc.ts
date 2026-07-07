@@ -1,3 +1,4 @@
+import type { Manager } from "@cashu/coco-core";
 import type {
 	ManagerAddMintParams,
 	ManagerBalanceScopeDto,
@@ -21,7 +22,14 @@ import type {
 	ManagerMintWithKeysetsDto,
 	ManagerPendingMintCheckResultDto,
 	ManagerProofDto,
+	ManagerSendExecuteParams,
+	ManagerSendExecuteResultDto,
+	ManagerSendOperationDto,
+	ManagerSendOperationIdParams,
+	ManagerSendPrepareParams,
 } from "../mainview/lib/manager-rpc.ts";
+
+type ManagerSendPrepareInput = Parameters<Manager["ops"]["send"]["prepare"]>[0];
 
 type ManagerMintLike = {
 	mintUrl: string;
@@ -141,6 +149,33 @@ type ManagerMintOpsApiLike = {
 	listInFlight: () => Promise<ManagerMintOperationLike[]>;
 };
 
+type ManagerSendOperationLike = Omit<
+	ManagerSendOperationDto,
+	"amount" | "fee" | "inputAmount"
+> & {
+	amount: unknown;
+	fee?: unknown;
+	inputAmount?: unknown;
+};
+
+type ManagerSendApiLike = {
+	prepare: (input: ManagerSendPrepareInput) => Promise<ManagerSendOperationLike>;
+	execute: (
+		operationId: string,
+		options?: { memo?: string },
+	) => Promise<{
+		operation: ManagerSendOperationLike;
+		token: unknown;
+	}>;
+	get: (operationId: string) => Promise<ManagerSendOperationLike | null>;
+	listPrepared: () => Promise<ManagerSendOperationLike[]>;
+	listInFlight: () => Promise<ManagerSendOperationLike[]>;
+	refresh: (operationId: string) => Promise<ManagerSendOperationLike>;
+	cancel: (operationId: string) => Promise<void>;
+	reclaim: (operationId: string) => Promise<void>;
+	finalize: (operationId: string) => Promise<void>;
+};
+
 export type ManagerRpcManagerLike = {
 	mint: ManagerMintApiLike;
 	wallet: {
@@ -149,6 +184,7 @@ export type ManagerRpcManagerLike = {
 	history: ManagerHistoryApiLike;
 	ops: {
 		mint: ManagerMintOpsApiLike;
+		send: ManagerSendApiLike;
 	};
 	on: <TEventName extends ManagerEventName>(
 		event: TEventName,
@@ -205,6 +241,23 @@ type ManagerRpcRequestHandlers = {
 	) => Promise<ManagerMintOperationDto[]>;
 	managerMintOpsListPending: () => Promise<ManagerMintOperationDto[]>;
 	managerMintOpsListInFlight: () => Promise<ManagerMintOperationDto[]>;
+	managerSendPrepare: (
+		params: ManagerSendPrepareParams,
+	) => Promise<ManagerSendOperationDto>;
+	managerSendExecute: (
+		params: ManagerSendExecuteParams,
+	) => Promise<ManagerSendExecuteResultDto>;
+	managerSendGet: (
+		params: ManagerSendOperationIdParams,
+	) => Promise<ManagerSendOperationDto | null>;
+	managerSendListPrepared: () => Promise<ManagerSendOperationDto[]>;
+	managerSendListInFlight: () => Promise<ManagerSendOperationDto[]>;
+	managerSendRefresh: (
+		params: ManagerSendOperationIdParams,
+	) => Promise<ManagerSendOperationDto>;
+	managerSendCancel: (params: ManagerSendOperationIdParams) => Promise<void>;
+	managerSendReclaim: (params: ManagerSendOperationIdParams) => Promise<void>;
+	managerSendFinalize: (params: ManagerSendOperationIdParams) => Promise<void>;
 };
 
 export function createManagerRpcRequestHandlers(
@@ -317,6 +370,56 @@ export function createManagerRpcRequestHandlers(
 			return (await manager.ops.mint.listInFlight()).map(
 				serializeMintOperation,
 			);
+		},
+		managerSendPrepare: async (params) => {
+			const manager = await getManager();
+			return serializeSendOperation(
+				await manager.ops.send.prepare({
+					mintUrl: params.mintUrl,
+					amount: params.amount,
+					unit: params.unit,
+					target: params.target as ManagerSendPrepareInput["target"],
+				}),
+			);
+		},
+		managerSendExecute: async ({ operationId, options }) => {
+			const manager = await getManager();
+			const result = await manager.ops.send.execute(operationId, options);
+			return {
+				operation: serializeSendOperation(result.operation),
+				token: result.token,
+			};
+		},
+		managerSendGet: async ({ operationId }) => {
+			const manager = await getManager();
+			const operation = await manager.ops.send.get(operationId);
+			return operation ? serializeSendOperation(operation) : null;
+		},
+		managerSendListPrepared: async () => {
+			const manager = await getManager();
+			const operations = await manager.ops.send.listPrepared();
+			return operations.map(serializeSendOperation);
+		},
+		managerSendListInFlight: async () => {
+			const manager = await getManager();
+			const operations = await manager.ops.send.listInFlight();
+			return operations.map(serializeSendOperation);
+		},
+		managerSendRefresh: async ({ operationId }) => {
+			const manager = await getManager();
+			return serializeSendOperation(await manager.ops.send.refresh(operationId));
+		},
+		managerSendCancel: async ({ operationId }) => {
+			const manager = await getManager();
+			await manager.ops.send.cancel(operationId);
+		},
+		managerSendReclaim: async ({ operationId }) => {
+			const manager = await getManager();
+			await manager.ops.send.reclaim(operationId);
+		},
+		managerSendFinalize: async ({ operationId }) => {
+			const manager = await getManager();
+			await manager.ops.send.finalize(operationId);
 		},
 	};
 }
@@ -443,6 +546,44 @@ function serializeManagerEvent<TEventName extends ManagerEventName>(
 				mintUrl: operationPayload.mintUrl,
 				operationId: operationPayload.operationId,
 				operation: serializeMintOperation(operationPayload.operation),
+			},
+		} as ManagerEventDto<TEventName>;
+	}
+
+	if (
+		event === "send:prepared" ||
+		event === "send:finalized" ||
+		event === "send:rolled-back"
+	) {
+		const sendPayload = payload as {
+			mintUrl: string;
+			operationId: string;
+			operation: ManagerSendOperationLike;
+		};
+		return {
+			event,
+			payload: {
+				mintUrl: sendPayload.mintUrl,
+				operationId: sendPayload.operationId,
+				operation: serializeSendOperation(sendPayload.operation),
+			},
+		} as ManagerEventDto<TEventName>;
+	}
+
+	if (event === "send:pending") {
+		const sendPayload = payload as {
+			mintUrl: string;
+			operationId: string;
+			operation: ManagerSendOperationLike;
+			token: unknown;
+		};
+		return {
+			event,
+			payload: {
+				mintUrl: sendPayload.mintUrl,
+				operationId: sendPayload.operationId,
+				operation: serializeSendOperation(sendPayload.operation),
+				token: sendPayload.token,
 			},
 		} as ManagerEventDto<TEventName>;
 	}
@@ -634,6 +775,37 @@ function isUnitAmountRecord(value: unknown): value is { amount: unknown; unit: u
 	);
 }
 
+function serializeSendOperation(
+	operation: ManagerSendOperationLike,
+): ManagerSendOperationDto {
+	return omitUndefined({
+		id: operation.id,
+		mintUrl: operation.mintUrl,
+		amount: serializeAmount(operation.amount),
+		unit: operation.unit,
+		method: operation.method,
+		methodData: operation.methodData,
+		state: operation.state,
+		createdAt: operation.createdAt,
+		updatedAt: operation.updatedAt,
+		error: operation.error,
+		needsSwap: operation.needsSwap,
+		fee: serializeOptionalAmount(operation.fee),
+		inputAmount: serializeOptionalAmount(operation.inputAmount),
+		inputProofSecrets: operation.inputProofSecrets,
+		outputData: operation.outputData,
+		token: operation.token,
+	});
+}
+
+function serializeOptionalAmount(input: unknown): string | undefined {
+	if (input === null || input === undefined) {
+		return undefined;
+	}
+
+	return serializeAmount(input);
+}
+
 function serializeAmount(input: unknown): string {
 	if (typeof input === "bigint") {
 		return input.toString();
@@ -664,4 +836,12 @@ function serializeAmount(input: unknown): string {
 	}
 
 	throw new Error("Cannot serialize manager amount value.");
+}
+
+function omitUndefined<TRecord extends Record<string, unknown>>(
+	record: TRecord,
+): TRecord {
+	return Object.fromEntries(
+		Object.entries(record).filter(([, value]) => value !== undefined),
+	) as TRecord;
 }

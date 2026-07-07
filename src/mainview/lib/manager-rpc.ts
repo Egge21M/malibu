@@ -39,11 +39,18 @@ export type ManagerMintOperationEventName =
 	| "mint-op:finalized"
 	| "mint-op:requeue";
 
+export type ManagerSendOperationEventName =
+	| "send:prepared"
+	| "send:pending"
+	| "send:finalized"
+	| "send:rolled-back";
+
 export type ManagerEventName =
 	| ManagerMintEventName
 	| ManagerBalanceRefreshEventName
 	| ManagerHistoryEventName
-	| ManagerMintOperationEventName;
+	| ManagerMintOperationEventName
+	| ManagerSendOperationEventName;
 
 export type ManagerMintWithKeysetsDto = {
 	mint: ManagerMintDto;
@@ -82,6 +89,34 @@ export type ManagerProofDto = Record<string, unknown> & {
 export type ManagerUnitAmountDto = {
 	amount: string;
 	unit: string;
+};
+
+export type ManagerSendOperationState =
+	| "init"
+	| "prepared"
+	| "executing"
+	| "pending"
+	| "finalized"
+	| "rolling_back"
+	| "rolled_back";
+
+export type ManagerSendOperationDto = {
+	id: string;
+	mintUrl: string;
+	amount: string;
+	unit: string;
+	method: string;
+	methodData: unknown;
+	state: ManagerSendOperationState;
+	createdAt: number;
+	updatedAt: number;
+	error?: string;
+	needsSwap?: boolean;
+	fee?: string;
+	inputAmount?: string;
+	inputProofSecrets?: string[];
+	outputData?: unknown;
+	token?: unknown;
 };
 
 export type ManagerHistoryEntryDto = {
@@ -181,6 +216,27 @@ export type ManagerEventPayloads = {
 		operationId: string;
 		operation: ManagerMintOperationDto;
 	};
+	"send:prepared": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerSendOperationDto;
+	};
+	"send:pending": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerSendOperationDto;
+		token: unknown;
+	};
+	"send:finalized": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerSendOperationDto;
+	};
+	"send:rolled-back": {
+		mintUrl: string;
+		operationId: string;
+		operation: ManagerSendOperationDto;
+	};
 };
 
 export type ManagerEventSubscriptionDto = {
@@ -231,6 +287,28 @@ export type ManagerMintOperationListByQuoteParams = {
 };
 
 export type ManagerMintMethod = "bolt11" | "onchain" | "bolt12";
+
+export type ManagerSendPrepareParams = {
+	mintUrl: string;
+	amount: string;
+	unit?: string;
+	target?: unknown;
+};
+
+export type ManagerSendOperationIdParams = {
+	operationId: string;
+};
+
+export type ManagerSendExecuteParams = ManagerSendOperationIdParams & {
+	options?: {
+		memo?: string;
+	};
+};
+
+export type ManagerSendExecuteResultDto = {
+	operation: ManagerSendOperationDto;
+	token: unknown;
+};
 
 export type ManagerRpcRequests = {
 	managerMintGetAllMints: {
@@ -312,6 +390,42 @@ export type ManagerRpcRequests = {
 	managerMintOpsListInFlight: {
 		params: undefined;
 		response: ManagerMintOperationDto[];
+	};
+	managerSendPrepare: {
+		params: ManagerSendPrepareParams;
+		response: ManagerSendOperationDto;
+	};
+	managerSendExecute: {
+		params: ManagerSendExecuteParams;
+		response: ManagerSendExecuteResultDto;
+	};
+	managerSendGet: {
+		params: ManagerSendOperationIdParams;
+		response: ManagerSendOperationDto | null;
+	};
+	managerSendListPrepared: {
+		params: undefined;
+		response: ManagerSendOperationDto[];
+	};
+	managerSendListInFlight: {
+		params: undefined;
+		response: ManagerSendOperationDto[];
+	};
+	managerSendRefresh: {
+		params: ManagerSendOperationIdParams;
+		response: ManagerSendOperationDto;
+	};
+	managerSendCancel: {
+		params: ManagerSendOperationIdParams;
+		response: void;
+	};
+	managerSendReclaim: {
+		params: ManagerSendOperationIdParams;
+		response: void;
+	};
+	managerSendFinalize: {
+		params: ManagerSendOperationIdParams;
+		response: void;
 	};
 };
 
