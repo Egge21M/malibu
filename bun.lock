@@ -6,6 +6,7 @@
       "name": "malibu-cashu-wallet",
       "dependencies": {
         "@cashu/coco-core": "rc",
+        "@cashu/coco-react": "rc",
         "@cashu/coco-sqlite-bun": "rc",
         "@fontsource-variable/jetbrains-mono": "^5.2.8",
         "@tailwindcss/vite": "^4",
@@ -97,6 +98,8 @@
     "@cashu/cashu-ts": ["@cashu/cashu-ts@4.5.1", "", { "dependencies": { "@noble/curves": "^2.2.0", "@noble/hashes": "^2.2.0", "@scure/base": "^2.2.0", "@scure/bip32": "^2.2.0" } }, "sha512-AGB7wh1SC0iANRSsdwM091eoS1uVhSf/Qf2VM3plw8EzlYjiFkwSa9X0Nh6NpsE1VVeAuPpNInvpznvElp2Q0A=="],
 
     "@cashu/coco-core": ["@cashu/coco-core@2.0.0-rc.0", "", { "dependencies": { "@cashu/cashu-ts": "4.5", "@noble/curves": "^2.0.1", "@noble/hashes": "^2.0.1", "@scure/bip32": "^2.0.1" }, "peerDependencies": { "typescript": "^5" } }, "sha512-opcfTq7evBGWE6QlTBuLPPWAkyR0wig0cueb6exwfgfb+f7mg2e0+kYJhBlmDbNUB5wPaedLid5cZIYLCbPRXw=="],
+
+    "@cashu/coco-react": ["@cashu/coco-react@2.0.0-rc.0", "", { "peerDependencies": { "@cashu/coco-core": "2.0.0-rc.0", "react": "^19" } }, "sha512-FZmYQ42U4TiXS3QefEoaSH0KOtRvXpndH2NAhOmumch0vmDAxbBqlzsHPkpldeWyMPFcGhSe0nmXlmNzP7cAOg=="],
 
     "@cashu/coco-sqlite-bun": ["@cashu/coco-sqlite-bun@2.0.0-rc.0", "", { "peerDependencies": { "@cashu/cashu-ts": "4.5", "@cashu/coco-core": "2.0.0-rc.0", "typescript": "^5" } }, "sha512-c2dlT7rPpxB3K4hC6jDPqY/9ZDCYo+hSFXMd38nnVKO8tWm+VLudwf4m/UMfFkLK5ucbm36vRmefRYF/2I8rvw=="],
 

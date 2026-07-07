@@ -319,6 +319,10 @@ export class CashuWalletService {
 		return this.getManager();
 	}
 
+	getDataDir(): string {
+		return this.dataDir;
+	}
+
 	private async withSnapshot<TData>(
 		data: TData,
 	): Promise<WalletActionResult<TData>> {

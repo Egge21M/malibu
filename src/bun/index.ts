@@ -74,10 +74,19 @@ const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 					params,
 				);
 			},
+			managerWalletRestore: async (params) => {
+				return managerRpcRequestHandlers.managerWalletRestore(params);
+			},
 			managerHistoryGetPaginatedHistory: async (params) => {
 				return managerRpcRequestHandlers.managerHistoryGetPaginatedHistory(
 					params,
 				);
+			},
+			managerMintQuoteCreate: async (params) => {
+				return managerRpcRequestHandlers.managerMintQuoteCreate(params);
+			},
+			managerMintQuoteListPending: async (params) => {
+				return managerRpcRequestHandlers.managerMintQuoteListPending(params);
 			},
 			managerMintOpsPrepare: async (params) => {
 				return managerRpcRequestHandlers.managerMintOpsPrepare(params);
@@ -130,76 +139,77 @@ const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 			managerSendReclaim: async (params) => {
 				return managerRpcRequestHandlers.managerSendReclaim(params);
 			},
-				managerSendFinalize: async (params) => {
-					return managerRpcRequestHandlers.managerSendFinalize(params);
-				},
-				managerReceivePrepare: async (params) => {
-					return managerRpcRequestHandlers.managerReceivePrepare(params);
-				},
-				managerReceiveExecute: async (params) => {
-					return managerRpcRequestHandlers.managerReceiveExecute(params);
-				},
-				managerReceiveGet: async (params) => {
-					return managerRpcRequestHandlers.managerReceiveGet(params);
-				},
-				managerReceiveRefresh: async (params) => {
-					return managerRpcRequestHandlers.managerReceiveRefresh(params);
-				},
-				managerReceiveCancel: async (params) => {
-					return managerRpcRequestHandlers.managerReceiveCancel(params);
-				},
-				managerReceiveListPrepared: async () => {
-					return managerRpcRequestHandlers.managerReceiveListPrepared();
-				},
-				managerReceiveListInFlight: async () => {
-					return managerRpcRequestHandlers.managerReceiveListInFlight();
-				},
-				managerMeltQuoteCreate: async (params) => {
-					return managerRpcRequestHandlers.managerMeltQuoteCreate(params);
-				},
-				managerMeltQuoteGet: async (params) => {
-					return managerRpcRequestHandlers.managerMeltQuoteGet(params);
-				},
-				managerMeltQuoteListPending: async (params) => {
-					return managerRpcRequestHandlers.managerMeltQuoteListPending(params);
-				},
-				managerMeltQuoteRefresh: async (params) => {
-					return managerRpcRequestHandlers.managerMeltQuoteRefresh(params);
-				},
-				managerMeltPrepare: async (params) => {
-					return managerRpcRequestHandlers.managerMeltPrepare(params);
-				},
-				managerMeltExecute: async (params) => {
-					return managerRpcRequestHandlers.managerMeltExecute(params);
-				},
-				managerMeltGet: async (params) => {
-					return managerRpcRequestHandlers.managerMeltGet(params);
-				},
-				managerMeltGetByQuote: async (params) => {
-					return managerRpcRequestHandlers.managerMeltGetByQuote(params);
-				},
-				managerMeltListByQuote: async (params) => {
-					return managerRpcRequestHandlers.managerMeltListByQuote(params);
-				},
-				managerMeltListPrepared: async () => {
-					return managerRpcRequestHandlers.managerMeltListPrepared();
-				},
-				managerMeltListInFlight: async () => {
-					return managerRpcRequestHandlers.managerMeltListInFlight();
-				},
-				managerMeltRefresh: async (params) => {
-					return managerRpcRequestHandlers.managerMeltRefresh(params);
-				},
-				managerMeltCancel: async (params) => {
-					return managerRpcRequestHandlers.managerMeltCancel(params);
-				},
-				managerMeltReclaim: async (params) => {
-					return managerRpcRequestHandlers.managerMeltReclaim(params);
-				},
-				managerMeltFinalize: async (params) => {
-					return managerRpcRequestHandlers.managerMeltFinalize(params);
-				},
-				snapshot: () => walletService.snapshot(),
+			managerSendFinalize: async (params) => {
+				return managerRpcRequestHandlers.managerSendFinalize(params);
+			},
+			managerReceivePrepare: async (params) => {
+				return managerRpcRequestHandlers.managerReceivePrepare(params);
+			},
+			managerReceiveExecute: async (params) => {
+				return managerRpcRequestHandlers.managerReceiveExecute(params);
+			},
+			managerReceiveGet: async (params) => {
+				return managerRpcRequestHandlers.managerReceiveGet(params);
+			},
+			managerReceiveRefresh: async (params) => {
+				return managerRpcRequestHandlers.managerReceiveRefresh(params);
+			},
+			managerReceiveCancel: async (params) => {
+				return managerRpcRequestHandlers.managerReceiveCancel(params);
+			},
+			managerReceiveListPrepared: async () => {
+				return managerRpcRequestHandlers.managerReceiveListPrepared();
+			},
+			managerReceiveListInFlight: async () => {
+				return managerRpcRequestHandlers.managerReceiveListInFlight();
+			},
+			managerMeltQuoteCreate: async (params) => {
+				return managerRpcRequestHandlers.managerMeltQuoteCreate(params);
+			},
+			managerMeltQuoteGet: async (params) => {
+				return managerRpcRequestHandlers.managerMeltQuoteGet(params);
+			},
+			managerMeltQuoteListPending: async (params) => {
+				return managerRpcRequestHandlers.managerMeltQuoteListPending(params);
+			},
+			managerMeltQuoteRefresh: async (params) => {
+				return managerRpcRequestHandlers.managerMeltQuoteRefresh(params);
+			},
+			managerMeltPrepare: async (params) => {
+				return managerRpcRequestHandlers.managerMeltPrepare(params);
+			},
+			managerMeltExecute: async (params) => {
+				return managerRpcRequestHandlers.managerMeltExecute(params);
+			},
+			managerMeltGet: async (params) => {
+				return managerRpcRequestHandlers.managerMeltGet(params);
+			},
+			managerMeltGetByQuote: async (params) => {
+				return managerRpcRequestHandlers.managerMeltGetByQuote(params);
+			},
+			managerMeltListByQuote: async (params) => {
+				return managerRpcRequestHandlers.managerMeltListByQuote(params);
+			},
+			managerMeltListPrepared: async () => {
+				return managerRpcRequestHandlers.managerMeltListPrepared();
+			},
+			managerMeltListInFlight: async () => {
+				return managerRpcRequestHandlers.managerMeltListInFlight();
+			},
+			managerMeltRefresh: async (params) => {
+				return managerRpcRequestHandlers.managerMeltRefresh(params);
+			},
+			managerMeltCancel: async (params) => {
+				return managerRpcRequestHandlers.managerMeltCancel(params);
+			},
+			managerMeltReclaim: async (params) => {
+				return managerRpcRequestHandlers.managerMeltReclaim(params);
+			},
+			managerMeltFinalize: async (params) => {
+				return managerRpcRequestHandlers.managerMeltFinalize(params);
+			},
+			snapshot: () => walletService.snapshot(),
+			dataDir: () => walletService.getDataDir(),
 			addMint: (params) => walletService.addMint(params),
 			restoreMint: (params) => walletService.restoreMint(params),
 			createMintQuote: (params) => walletService.createMintQuote(params),
@@ -219,7 +229,8 @@ const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 				walletService.refreshMeltOperation(params),
 		},
 		messages: {
-			managerEventSubscribe: (params) => managerEventForwarder.subscribe(params),
+			managerEventSubscribe: (params) =>
+				managerEventForwarder.subscribe(params),
 			managerEventUnsubscribe: (params) =>
 				managerEventForwarder.unsubscribe(params),
 		},

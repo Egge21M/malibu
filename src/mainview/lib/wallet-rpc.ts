@@ -134,6 +134,10 @@ export type WalletRpcSchema = {
 				params: undefined;
 				response: WalletSnapshot;
 			};
+			dataDir: {
+				params: undefined;
+				response: string;
+			};
 			addMint: {
 				params: AddMintParams;
 				response: WalletSnapshot;

@@ -4,6 +4,7 @@ import {
 	type Manager,
 	type MeltOperation,
 	type MeltQuote,
+	type MintQuote,
 	type QuoteIdentity,
 	type ReceiveOperation,
 } from "@cashu/coco-core";
@@ -15,17 +16,20 @@ import type {
 	ManagerBalancesByMintDto,
 	ManagerBalancesByUnitDto,
 	ManagerCancelOperationParams,
+	ManagerCreateMintQuoteParams,
 	ManagerCreateMeltQuoteParams,
 	ManagerEventDto,
 	ManagerEventName,
 	ManagerEventPayloads,
 	ManagerHistoryEntryDto,
 	ManagerHistoryPaginationParams,
+	ManagerListPendingMintQuotesParams,
 	ManagerListPendingMeltQuotesParams,
 	ManagerMeltOperationDto,
 	ManagerMeltQuoteDto,
 	ManagerMintDto,
 	ManagerEventSubscriptionDto,
+	ManagerMintQuoteDto,
 	ManagerMintUrlParams,
 	ManagerMintWithKeysetsDto,
 	ManagerMintOperationDto,
@@ -39,6 +43,7 @@ import type {
 	ManagerPreparedReceiveOperationDto,
 	ManagerQuoteIdentityDto,
 	ManagerReceiveOperationDto,
+	ManagerRestoreMintParams,
 	ManagerSendExecuteParams,
 	ManagerSendExecuteResultDto,
 	ManagerSendOperationEventName,
@@ -176,9 +181,16 @@ type RemoteManagerRpc = {
 		managerWalletBalancesTotalByUnit: (
 			params?: ManagerBalanceScopeDto,
 		) => Promise<ManagerBalancesByUnitDto>;
+		managerWalletRestore: (params: ManagerRestoreMintParams) => Promise<void>;
 		managerHistoryGetPaginatedHistory: (
 			params: ManagerHistoryPaginationParams,
 		) => Promise<ManagerHistoryEntryDto[]>;
+		managerMintQuoteCreate: (
+			params: ManagerCreateMintQuoteParams,
+		) => Promise<ManagerMintQuoteDto>;
+		managerMintQuoteListPending: (
+			params?: ManagerListPendingMintQuotesParams,
+		) => Promise<ManagerMintQuoteDto[]>;
 		managerMintOpsPrepare: (
 			params: ManagerMintOperationPrepareParams,
 		) => Promise<ManagerMintOperationDto>;
@@ -330,6 +342,8 @@ class RemoteCocoManager {
 					await this.rpc.request.managerWalletBalancesTotalByUnit(scope),
 				),
 		}),
+		restore: (mintUrl: string, options?: ManagerRestoreMintParams["options"]) =>
+			this.rpc.request.managerWalletRestore({ mintUrl, options }),
 	});
 
 	readonly history = unsupportedAwareObject("Remote Coco manager history API", {
@@ -344,6 +358,22 @@ class RemoteCocoManager {
 	});
 
 	readonly quotes = unsupportedAwareObject("Remote Coco manager quotes API", {
+		mint: unsupportedAwareObject("Remote Coco manager mint quote API", {
+			create: async (input: ManagerCreateMintQuoteParams) =>
+				rehydrateMintQuote(
+					await this.rpc.request.managerMintQuoteCreate({
+						...input,
+						amount: {
+							amount: stringifyAmount(input.amount.amount),
+							unit: input.amount.unit,
+						},
+					}),
+				),
+			listPending: async (input?: ManagerListPendingMintQuotesParams) =>
+				(
+					await this.rpc.request.managerMintQuoteListPending(input)
+				).map(rehydrateMintQuote),
+		}),
 		melt: unsupportedAwareObject("Remote Coco manager melt quote API", {
 			create: async (input: ManagerCreateMeltQuoteParams) =>
 				rehydrateMeltQuote(
@@ -937,6 +967,15 @@ function operationIdFrom(operationOrId: ReceiveOperation | string): string {
 	}
 
 	return operationOrId.id;
+}
+
+function rehydrateMintQuote(quote: ManagerMintQuoteDto): MintQuote {
+	return {
+		...quote,
+		...(quote.amount === undefined
+			? {}
+			: { amount: Amount.from(quote.amount) }),
+	} as unknown as MintQuote;
 }
 
 function rehydrateMeltQuote(quote: ManagerMeltQuoteDto): MeltQuote {

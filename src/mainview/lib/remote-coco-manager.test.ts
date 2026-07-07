@@ -10,6 +10,7 @@ import type {
 	ManagerMeltOperationDto,
 	ManagerMeltQuoteDto,
 	ManagerMintDto,
+	ManagerMintQuoteDto,
 	ManagerMintWithKeysetsDto,
 	ManagerMintOperationDto,
 	ManagerPendingMintCheckResultDto,
@@ -43,12 +44,23 @@ type RemoteMintManagerSurface = {
 				scope?: ManagerBalanceScopeDto,
 			) => Promise<BalancesByUnit>;
 		};
+		restore: (mintUrl: string, options?: { units?: string[] }) => Promise<void>;
 	};
 	history: {
 		getPaginatedHistory: (
 			offset?: number,
 			limit?: number,
 		) => Promise<HistoryEntry[]>;
+	};
+	quotes: {
+		mint: {
+			create: (input: {
+				mintUrl: string;
+				method: "bolt11";
+				amount: { amount: string; unit: string };
+			}) => Promise<RemoteMintQuote>;
+			listPending: (input?: { method?: "bolt11" }) => Promise<RemoteMintQuote[]>;
+		};
 	};
 	ops: {
 		mint: {
@@ -194,6 +206,10 @@ type MintOperation = Omit<ManagerMintOperationDto, "amount"> & {
 	amount: AmountLike;
 };
 
+type RemoteMintQuote = Omit<ManagerMintQuoteDto, "amount"> & {
+	amount: AmountLike;
+};
+
 type MintOperationEvent = {
 	mintUrl: string;
 	operationId: string;
@@ -292,9 +308,20 @@ function createFakeRpc() {
 						sat: balance("5", "1", "6", "sat"),
 					} satisfies ManagerBalancesByUnitDto;
 				},
+				managerWalletRestore: async (params: unknown) => {
+					calls.push(["managerWalletRestore", params]);
+				},
 				managerHistoryGetPaginatedHistory: async (params: unknown) => {
 					calls.push(["managerHistoryGetPaginatedHistory", params]);
 					return [historyEntry("history-1", "42")];
+				},
+				managerMintQuoteCreate: async (params: unknown) => {
+					calls.push(["managerMintQuoteCreate", params]);
+					return mintQuote("quote-1");
+				},
+				managerMintQuoteListPending: async (params?: unknown) => {
+					calls.push(["managerMintQuoteListPending", params]);
+					return [mintQuote("quote-1")];
 				},
 				managerMintOpsPrepare: async (params: unknown) => {
 					calls.push(["managerMintOpsPrepare", params]);
@@ -580,6 +607,25 @@ describe("createRemoteCocoManager", () => {
 		]);
 	});
 
+	it("forwards Coco React wallet restore calls to the manager RPC", async () => {
+		const fake = createFakeRpc();
+		const manager = createRemoteCocoManager(
+			fake.rpc,
+		) as unknown as RemoteMintManagerSurface;
+
+		await manager.wallet.restore("https://mint.example", { units: ["sat"] });
+
+		expect(fake.calls).toEqual([
+			[
+				"managerWalletRestore",
+				{
+					mintUrl: "https://mint.example",
+					options: { units: ["sat"] },
+				},
+			],
+		]);
+	});
+
 	it("forwards Coco React history pagination calls and rehydrates history amounts", async () => {
 		const fake = createFakeRpc();
 		const manager = createRemoteCocoManager(
@@ -603,6 +649,34 @@ describe("createRemoteCocoManager", () => {
 		expect(
 			typeof (entries[0]?.amount as unknown as { add: unknown }).add,
 		).toBe("function");
+	});
+
+	it("forwards Coco React mint quote calls and rehydrates quote amounts", async () => {
+		const fake = createFakeRpc();
+		const manager = createRemoteCocoManager(
+			fake.rpc,
+		) as unknown as RemoteMintManagerSurface;
+
+		const created = await manager.quotes.mint.create({
+			mintUrl: "https://mint.example",
+			method: "bolt11",
+			amount: { amount: "21", unit: "sat" },
+		});
+		const pending = await manager.quotes.mint.listPending({ method: "bolt11" });
+
+		expect(created.amount.add("2").toString()).toBe("23");
+		expect(pending[0]?.amount.add("2").toString()).toBe("23");
+		expect(fake.calls).toEqual([
+			[
+				"managerMintQuoteCreate",
+				{
+					mintUrl: "https://mint.example",
+					method: "bolt11",
+					amount: { amount: "21", unit: "sat" },
+				},
+			],
+			["managerMintQuoteListPending", { method: "bolt11" }],
+		]);
 	});
 
 	it("forwards Coco React mint operation lifecycle calls and rehydrates amounts", async () => {
@@ -1033,12 +1107,6 @@ describe("createRemoteCocoManager", () => {
 		) as unknown as RemoteMintManagerSurface;
 
 		expect(
-			() =>
-				(manager.wallet as unknown as Record<string, unknown>)["restore"],
-		).toThrow(
-			'Remote Coco manager wallet API does not support "restore" yet',
-		);
-		expect(
 			() => (manager.mint as unknown as Record<string, unknown>)["getMintInfo"],
 		).toThrow(
 			'Remote Coco manager mint API does not support "getMintInfo" yet',
@@ -1173,6 +1241,25 @@ function mintOperation(
 		expiry: null,
 		createdAt: 20,
 		updatedAt: 21,
+	};
+}
+
+function mintQuote(
+	quoteId: string,
+	overrides: Partial<ManagerMintQuoteDto> = {},
+): ManagerMintQuoteDto {
+	return {
+		mintUrl: "https://mint.example",
+		method: "bolt11",
+		quoteId,
+		request: "lnbc1...",
+		amount: "21",
+		unit: "sat",
+		expiry: 123,
+		state: "UNPAID",
+		createdAt: 18,
+		updatedAt: 19,
+		...overrides,
 	};
 }
 

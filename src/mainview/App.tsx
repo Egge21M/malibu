@@ -1,5 +1,26 @@
 import * as React from "react";
 import {
+	getEncodedToken,
+	type BalancesByMintAndUnit,
+	type BalancesByUnit,
+	type BalanceSnapshot,
+	type HistoryEntry,
+	type MeltQuote,
+	type Mint,
+	type MintQuote,
+} from "@cashu/coco-core";
+import {
+	CocoCashuProvider,
+	useBalances,
+	useManager,
+	useMeltOperation,
+	useMintOperation,
+	useMints,
+	usePaginatedHistory,
+	useReceiveOperation,
+	useSendOperation,
+} from "@cashu/coco-react";
+import {
 	Activity,
 	Check,
 	Copy,
@@ -59,11 +80,12 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { walletClient } from "@/lib/wallet-client";
+import { getRemoteCocoManager } from "@/lib/wallet-client";
+import type { ManagerEventName } from "@/lib/manager-rpc";
 import type {
 	BalanceSnapshotDto,
 	MintBalanceDto,
 	MintDto,
-	WalletActionResult,
 	WalletHistoryDto,
 	WalletOperationDto,
 	WalletQuoteDto,
@@ -157,10 +179,61 @@ const PRIMARY_ROUTES: RouteItem[] = [
 	{ path: "/settings", label: "Settings", icon: Settings },
 ];
 
+const OPERATION_REFRESH_EVENTS: ManagerEventName[] = [
+	"mint-op:pending",
+	"mint-op:executing",
+	"mint-op:finalized",
+	"mint-op:requeue",
+	"send:prepared",
+	"send:pending",
+	"send:finalized",
+	"send:rolled-back",
+	"receive-op:prepared",
+	"receive-op:finalized",
+	"receive-op:rolled-back",
+	"melt-op:prepared",
+	"melt-op:pending",
+	"melt-op:finalized",
+	"melt-op:rolled-back",
+];
+
 function App() {
-	const [snapshot, setSnapshot] = React.useState<WalletSnapshot | null>(null);
+	const manager = React.useMemo(() => getRemoteCocoManager(), []);
+
+	return (
+		<CocoCashuProvider
+			manager={manager}
+			errorFallback={(error) => (
+				<div className="min-h-svh bg-background p-6 text-foreground">
+					<Alert variant="destructive">
+						<AlertTitle>Wallet unavailable</AlertTitle>
+						<AlertDescription>{getErrorMessage(error)}</AlertDescription>
+					</Alert>
+				</div>
+			)}
+		>
+			<WalletWorkspace />
+		</CocoCashuProvider>
+	);
+}
+
+function WalletWorkspace() {
+	const manager = useManager();
+	const mintState = useMints();
+	const { balances: walletBalances, refresh: refreshBalances } = useBalances();
+	const {
+		history: paginatedHistory,
+		refresh: refreshHistory,
+		isFetching: isHistoryFetching,
+	} = usePaginatedHistory(24);
+	const mintOperation = useMintOperation();
+	const sendOperation = useSendOperation();
+	const receiveOperation = useReceiveOperation();
+	const meltOperation = useMeltOperation();
 	const [status, setStatus] = React.useState<StatusState>(null);
-	const [busy, setBusy] = React.useState<string | null>("snapshot");
+	const [busy, setBusy] = React.useState<string | null>(null);
+	const [dataDir, setDataDir] = React.useState("");
+	const [operations, setOperations] = React.useState<WalletOperationDto[]>([]);
 	const [mintUrl, setMintUrl] = React.useState("");
 	const [quoteMintUrl, setQuoteMintUrl] = React.useState("");
 	const [quoteAmount, setQuoteAmount] = React.useState("21");
@@ -184,17 +257,135 @@ function App() {
 		React.useState<WalletOperationDto | null>(null);
 	const [preparedMelt, setPreparedMelt] =
 		React.useState<WalletOperationDto | null>(null);
+	const mints = React.useMemo(
+		() => mintState.mints.map(toWalletMint),
+		[mintState.mints],
+	);
 	const trustedMints = React.useMemo(
-		() => snapshot?.mints.filter((mint) => mint.trusted) ?? [],
-		[snapshot],
+		() => mintState.trustedMints.map(toWalletMint),
+		[mintState.trustedMints],
+	);
+	const balances = React.useMemo(
+		() => toMintBalances(walletBalances.byMintAndUnit),
+		[walletBalances.byMintAndUnit],
+	);
+	const totals = React.useMemo(
+		() => toBalanceArray(walletBalances.totalByUnit),
+		[walletBalances.totalByUnit],
+	);
+	const history = React.useMemo(
+		() => paginatedHistory.map(toWalletHistory),
+		[paginatedHistory],
 	);
 	const defaultMintUrl = trustedMints[0]?.mintUrl ?? "";
+	const preparedSendView = React.useMemo(
+		() => {
+			const hookOperation = sendOperation.currentOperation
+				? toWalletOperation("send", sendOperation.currentOperation)
+				: null;
 
-	const loadSnapshot = React.useCallback(async () => {
-		setBusy("snapshot");
+			return preparedSend ?? onlyPreparedOperation(hookOperation);
+		},
+		[preparedSend, sendOperation.currentOperation],
+	);
+	const preparedReceiveView = React.useMemo(
+		() => {
+			const hookOperation = receiveOperation.currentOperation
+				? toWalletOperation("receive", receiveOperation.currentOperation)
+				: null;
+
+			return preparedReceive ?? onlyPreparedOperation(hookOperation);
+		},
+		[preparedReceive, receiveOperation.currentOperation],
+	);
+	const preparedMeltView = React.useMemo(
+		() =>
+			preparedMelt ??
+			(meltOperation.currentOperation
+				? toWalletOperation("melt", meltOperation.currentOperation)
+				: null),
+		[preparedMelt, meltOperation.currentOperation],
+	);
+	const walletSnapshot = React.useMemo<WalletSnapshot>(
+		() => ({
+			dataDir,
+			totalByUnit: totals,
+			balances,
+			mints,
+			pendingQuotes: lastMintQuote ? [lastMintQuote] : [],
+			operations,
+			history,
+		}),
+		[
+			dataDir,
+			totals,
+			balances,
+			mints,
+			lastMintQuote,
+			operations,
+			history,
+		],
+	);
+
+	const loadOperations = React.useCallback(async () => {
+		const [
+			pendingMintOperations,
+			inFlightMintOperations,
+			preparedSendOperations,
+			inFlightSendOperations,
+			preparedReceiveOperations,
+			inFlightReceiveOperations,
+			preparedMeltOperations,
+			inFlightMeltOperations,
+		] = await Promise.all([
+			manager.ops.mint.listPending(),
+			manager.ops.mint.listInFlight(),
+			manager.ops.send.listPrepared(),
+			manager.ops.send.listInFlight(),
+			manager.ops.receive.listPrepared(),
+			manager.ops.receive.listInFlight(),
+			manager.ops.melt.listPrepared(),
+			manager.ops.melt.listInFlight(),
+		]);
+		setOperations(
+			uniqueOperations([
+				...pendingMintOperations.map((operation) =>
+					toWalletOperation("mint", operation),
+				),
+				...inFlightMintOperations.map((operation) =>
+					toWalletOperation("mint", operation),
+				),
+				...preparedSendOperations.map((operation) =>
+					toWalletOperation("send", operation),
+				),
+				...inFlightSendOperations.map((operation) =>
+					toWalletOperation("send", operation),
+				),
+				...preparedReceiveOperations.map((operation) =>
+					toWalletOperation("receive", operation),
+				),
+				...inFlightReceiveOperations.map((operation) =>
+					toWalletOperation("receive", operation),
+				),
+				...preparedMeltOperations.map((operation) =>
+					toWalletOperation("melt", operation),
+				),
+				...inFlightMeltOperations.map((operation) =>
+					toWalletOperation("melt", operation),
+				),
+			]),
+		);
+	}, [manager]);
+
+	const loadWalletState = React.useCallback(async () => {
+		setBusy("refresh");
 		try {
-			const nextSnapshot = await walletClient.snapshot();
-			setSnapshot(nextSnapshot);
+			await Promise.all([
+				refreshBalances(),
+				refreshHistory(),
+				loadOperations(),
+				walletClient.dataDir().then(setDataDir),
+			]);
 			setStatus(null);
 		} catch (error) {
 			setStatus({
@@ -205,11 +396,32 @@ function App() {
 		} finally {
 			setBusy(null);
 		}
-	}, []);
+	}, [refreshBalances, refreshHistory, loadOperations]);
 
 	React.useEffect(() => {
-		void loadSnapshot();
-	}, [loadSnapshot]);
+		void loadWalletState();
+	}, [loadWalletState]);
+
+	React.useEffect(() => {
+		const reload = () => {
+			void loadOperations().catch((error) => {
+				setStatus({
+					kind: "error",
+					title: "Wallet unavailable",
+					message: getErrorMessage(error),
+				});
+			});
+		};
+		const unsubscribers = OPERATION_REFRESH_EVENTS.map((event) =>
+			manager.on(event, reload),
+		);
+
+		return () => {
+			for (const unsubscribe of unsubscribers) {
+				unsubscribe();
+			}
+		};
+	}, [manager, loadOperations]);
 
 	React.useEffect(() => {
 		if (!defaultMintUrl) {
@@ -223,20 +435,19 @@ function App() {
 
 	async function runAction<TData>(
 		busyKey: string,
-		action: () => Promise<WalletSnapshot | WalletActionResult<TData>>,
+		action: () => Promise<TData>,
 		successTitle: string,
 		onData?: (data: TData) => void,
 	) {
 		setBusy(busyKey);
 		try {
 			const response = await action();
-			if (isActionResult(response)) {
-				setSnapshot(response.snapshot);
-				onData?.(response.data);
-			} else {
-				setSnapshot(response);
-				onData?.(undefined as TData);
-			}
+			onData?.(response);
+			await Promise.all([
+				refreshBalances(),
+				refreshHistory(),
+				loadOperations(),
+			]);
 			setStatus({ kind: "success", title: successTitle });
 		} catch (error) {
 			setStatus({
@@ -253,7 +464,7 @@ function App() {
 		event.preventDefault();
 		void runAction(
 			"addMint",
-			() => walletClient.addMint({ mintUrl, trusted: true }),
+			() => mintState.addNewMint(mintUrl, { trusted: true }),
 			"Mint trusted",
 		);
 	}
@@ -261,7 +472,7 @@ function App() {
 	function handlePreviewMint() {
 		void runAction(
 			"previewMint",
-			() => walletClient.addMint({ mintUrl, trusted: false }),
+			() => mintState.addNewMint(mintUrl, { trusted: false }),
 			"Mint cached",
 		);
 	}
@@ -269,7 +480,7 @@ function App() {
 	function handleRestoreMint() {
 		void runAction(
 			"restoreMint",
-			() => walletClient.restoreMint({ mintUrl, units: [quoteUnit] }),
+			() => manager.wallet.restore(mintUrl, { units: [quoteUnit] }),
 			"Restore started",
 		);
 	}
@@ -278,16 +489,25 @@ function App() {
 		event.preventDefault();
 		void runAction(
 			"mintQuote",
-			() =>
-				walletClient.createMintQuote({
+			async () => {
+				const quote = await manager.quotes.mint.create({
 					mintUrl: quoteMintUrl,
+					method: "bolt11",
+					amount: {
+						amount: quoteAmount,
+						unit: quoteUnit,
+					},
+				});
+				const operation = await mintOperation.prepare({
+					quote,
 					amount: quoteAmount,
-					unit: quoteUnit,
-				}),
+				});
+				return { quote, operation };
+			},
 			"Lightning invoice ready",
 			(data) => {
-				setLastMintQuote(data.quote);
-				setLastMintOperation(data.operation);
+				setLastMintQuote(toWalletQuote(data.quote));
+				setLastMintOperation(toWalletOperation("mint", data.operation));
 			},
 		);
 	}
@@ -295,9 +515,12 @@ function App() {
 	function handleRefreshMintOperation(operationId: string) {
 		void runAction(
 			`mint:${operationId}`,
-			() => walletClient.refreshMintOperation({ operationId }),
+			() =>
+				mintOperation.currentOperation?.id === operationId
+					? mintOperation.refresh()
+					: manager.ops.mint.refresh(operationId),
 			"Lightning invoice checked",
-			(data) => setLastMintOperation(data),
+			(data) => setLastMintOperation(toWalletOperation("mint", data)),
 		);
 	}
 
@@ -306,24 +529,29 @@ function App() {
 		void runAction(
 			"prepareSend",
 			() =>
-				walletClient.prepareSend({
+				sendOperation.prepare({
 					mintUrl: sendMintUrl,
-					amount: sendAmount,
-					unit: sendUnit,
+					amount: {
+						amount: sendAmount,
+						unit: sendUnit,
+					},
 				}),
 			"Send prepared",
-			(data) => setPreparedSend(data),
+			(data) => setPreparedSend(toWalletOperation("send", data)),
 		);
 	}
 
 	function handleExecuteSend(operationId: string) {
 		void runAction(
 			"executeSend",
-			() => walletClient.executeSend({ operationId, memo: sendMemo }),
+			() =>
+				manager.ops.send.execute(operationId, {
+					memo: sendMemo.trim() || undefined,
+				}),
 			"Token created",
 			(data) => {
 				setPreparedSend(null);
-				setResultToken(data.token);
+				setResultToken(encodeTokenValue(data.token));
 			},
 		);
 	}
@@ -331,7 +559,7 @@ function App() {
 	function handleCancelSend(operationId: string) {
 		void runAction(
 			"cancelSend",
-			() => walletClient.cancelSend({ operationId }),
+			() => manager.ops.send.cancel(operationId),
 			"Send cancelled",
 			() => setPreparedSend(null),
 		);
@@ -341,16 +569,19 @@ function App() {
 		event.preventDefault();
 		void runAction(
 			"prepareReceive",
-			() => walletClient.prepareReceive({ token: receiveToken }),
+			() => receiveOperation.prepare({ token: receiveToken }),
 			"Receive prepared",
-			(data) => setPreparedReceive(data),
+			(data) => setPreparedReceive(toWalletOperation("receive", data)),
 		);
 	}
 
 	function handleExecuteReceive(operationId: string) {
 		void runAction(
 			"executeReceive",
-			() => walletClient.executeReceive({ operationId }),
+			() =>
+				receiveOperation.currentOperation?.id === operationId
+					? receiveOperation.execute()
+					: manager.ops.receive.execute(operationId),
 			"Token received",
 			() => {
 				setPreparedReceive(null);
@@ -362,7 +593,7 @@ function App() {
 	function handleCancelReceive(operationId: string) {
 		void runAction(
 			"cancelReceive",
-			() => walletClient.cancelReceive({ operationId }),
+			() => manager.ops.receive.cancel(operationId),
 			"Receive cancelled",
 			() => setPreparedReceive(null),
 		);
@@ -372,30 +603,36 @@ function App() {
 		event.preventDefault();
 		void runAction(
 			"prepareMelt",
-			() =>
-				walletClient.prepareMelt({
+			async () => {
+				const quote = await manager.quotes.melt.create({
 					mintUrl: meltMintUrl,
-					invoice: meltInvoice,
+					method: "bolt11",
+					methodData: { invoice: meltInvoice },
 					unit: meltUnit,
-				}),
+				});
+				return meltOperation.prepare({ quote });
+			},
 			"Lightning payment prepared",
-			(data) => setPreparedMelt(data.operation),
+			(data) => setPreparedMelt(toWalletOperation("melt", data)),
 		);
 	}
 
 	function handleExecuteMelt(operationId: string) {
 		void runAction(
 			"executeMelt",
-			() => walletClient.executeMelt({ operationId }),
+			() =>
+				meltOperation.currentOperation?.id === operationId
+					? meltOperation.execute()
+					: manager.ops.melt.execute(operationId),
 			"Payment submitted",
-			(data) => setPreparedMelt(data),
+			(data) => setPreparedMelt(toWalletOperation("melt", data)),
 		);
 	}
 
 	function handleCancelMelt(operationId: string) {
 		void runAction(
 			"cancelMelt",
-			() => walletClient.cancelMelt({ operationId }),
+			() => manager.ops.melt.cancel(operationId),
 			"Lightning payment cancelled",
 			() => setPreparedMelt(null),
 		);
@@ -404,9 +641,12 @@ function App() {
 	function handleRefreshMeltOperation(operationId: string) {
 		void runAction(
 			`melt:${operationId}`,
-			() => walletClient.refreshMeltOperation({ operationId }),
+			() =>
+				meltOperation.currentOperation?.id === operationId
+					? meltOperation.refresh()
+					: manager.ops.melt.refresh(operationId),
 			"Lightning payment refreshed",
-			(data) => setPreparedMelt(data),
+			(data) => setPreparedMelt(toWalletOperation("melt", data)),
 		);
 	}
 
@@ -424,7 +664,7 @@ function App() {
 		if (operation.type === "send" && operation.state === "pending") {
 			void runAction(
 				`send:${operation.id}`,
-				() => walletClient.reclaimSend({ operationId: operation.id }),
+				() => manager.ops.send.reclaim(operation.id),
 				"Send reclaimed",
 			);
 			return;
@@ -445,16 +685,27 @@ function App() {
 		}
 	}
 
-	const totals = snapshot?.totalByUnit.length ? snapshot.totalByUnit : [ZERO_TOTAL];
-	const operations = snapshot?.operations ?? [];
-	const history = snapshot?.history ?? [];
+	const displayedTotals = totals.length ? totals : [ZERO_TOTAL];
+	const displayedBusy =
+		busy ??
+		(mintOperation.isLoading
+			? "mintOperation"
+			: sendOperation.isLoading
+				? "sendOperation"
+				: receiveOperation.isLoading
+					? "receiveOperation"
+					: meltOperation.isLoading
+						? "meltOperation"
+						: isHistoryFetching
+							? "history"
+						: null);
 	const wallet = React.useMemo<WalletViewContext>(
 		() => ({
-			snapshot,
+			snapshot: walletSnapshot,
 			status,
-			busy,
+			busy: displayedBusy,
 			trustedMints,
-			totals,
+			totals: displayedTotals,
 			operations,
 			history,
 			mintUrl,
@@ -483,11 +734,11 @@ function App() {
 			setMeltUnit,
 			lastMintQuote,
 			lastMintOperation,
-			preparedSend,
+			preparedSend: preparedSendView,
 			resultToken,
-			preparedReceive,
-			preparedMelt,
-			loadSnapshot,
+			preparedReceive: preparedReceiveView,
+			preparedMelt: preparedMeltView,
+			loadSnapshot: loadWalletState,
 			handleAddMint,
 			handlePreviewMint,
 			handleRestoreMint,
@@ -506,11 +757,11 @@ function App() {
 			handleOperationAction,
 		}),
 		[
-			snapshot,
+			walletSnapshot,
 			status,
-			busy,
+			displayedBusy,
 			trustedMints,
-			totals,
+			displayedTotals,
 			operations,
 			history,
 			mintUrl,
@@ -527,11 +778,11 @@ function App() {
 			meltUnit,
 			lastMintQuote,
 			lastMintOperation,
-			preparedSend,
+			preparedSendView,
 			resultToken,
-			preparedReceive,
-			preparedMelt,
-			loadSnapshot,
+			preparedReceiveView,
+			preparedMeltView,
+			loadWalletState,
 		],
 	);
 
@@ -546,6 +797,7 @@ function App() {
 
 function WalletShell() {
 	const wallet = useWallet();
+	const walletConnected = wallet.snapshot !== null && wallet.status?.kind !== "error";
 	useWheelScrollFallback();
 
 	return (
@@ -566,8 +818,8 @@ function WalletShell() {
 						</div>
 					</div>
 					<div className="flex shrink-0 items-center gap-2">
-						<Badge variant={wallet.snapshot ? "default" : "secondary"}>
-							{wallet.snapshot ? "connected" : "connecting"}
+						<Badge variant={walletConnected ? "default" : "secondary"}>
+							{walletConnected ? "connected" : "connecting"}
 						</Badge>
 						<Badge
 							variant={wallet.trustedMints.length ? "default" : "secondary"}
@@ -584,7 +836,7 @@ function WalletShell() {
 							onClick={() => void wallet.loadSnapshot()}
 						>
 							<RefreshCw
-								className={wallet.busy === "snapshot" ? "animate-spin" : ""}
+								className={wallet.busy === "refresh" ? "animate-spin" : ""}
 							/>
 						</Button>
 					</div>
@@ -715,7 +967,8 @@ function OverviewScreen() {
 	);
 	const primaryTotal = wallet.totals[0] ?? ZERO_TOTAL;
 	const otherTotals = wallet.totals.slice(1);
-	const walletState = !wallet.snapshot
+	const walletConnected = wallet.snapshot !== null && wallet.status?.kind !== "error";
+	const walletState = !walletConnected
 		? {
 				label: "Connecting",
 				detail: "Waiting for the wallet service.",
@@ -772,7 +1025,7 @@ function OverviewScreen() {
 								onClick={() => void wallet.loadSnapshot()}
 							>
 								<RefreshCw
-									className={wallet.busy === "snapshot" ? "animate-spin" : ""}
+									className={wallet.busy === "refresh" ? "animate-spin" : ""}
 								/>
 							</Button>
 						</div>
@@ -849,8 +1102,8 @@ function OverviewScreen() {
 						<ReadinessRow
 							icon={Database}
 							label="Wallet service"
-							value={wallet.snapshot ? "Connected" : "Connecting"}
-							state={wallet.snapshot ? "ok" : "muted"}
+							value={walletConnected ? "Connected" : "Connecting"}
+							state={walletConnected ? "ok" : "muted"}
 						/>
 						<ReadinessRow
 							icon={Landmark}
@@ -2131,10 +2384,160 @@ function canScrollByDelta(element: HTMLElement, delta: { x: number; y: number })
 	return canScrollY || canScrollX;
 }
 
-function isActionResult<TData>(
-	response: WalletSnapshot | WalletActionResult<TData>,
-): response is WalletActionResult<TData> {
-	return "snapshot" in response;
+function toWalletMint(mint: Mint): MintDto {
+	return {
+		mintUrl: mint.mintUrl,
+		name: mint.name || mint.mintUrl,
+		trusted: mint.trusted,
+		createdAt: mint.createdAt,
+		updatedAt: mint.updatedAt,
+	};
+}
+
+function toBalanceArray(balances: BalancesByUnit): BalanceSnapshotDto[] {
+	return Object.values(balances).map(toBalanceSnapshot);
+}
+
+function toBalanceSnapshot(balance: BalanceSnapshot): BalanceSnapshotDto {
+	return {
+		spendable: amountToString(balance.spendable),
+		reserved: amountToString(balance.reserved),
+		total: amountToString(balance.total),
+		unit: balance.unit,
+	};
+}
+
+function toMintBalances(balances: BalancesByMintAndUnit): MintBalanceDto[] {
+	return Object.entries(balances).flatMap(([mintUrl, unitBalances]) =>
+		Object.values(unitBalances).map((balance) => ({
+			mintUrl,
+			...toBalanceSnapshot(balance),
+		})),
+	);
+}
+
+function toWalletQuote(quote: MintQuote | MeltQuote): WalletQuoteDto {
+	const record = quote as unknown as Record<string, unknown>;
+
+	return {
+		quoteId: String(record["quoteId"]),
+		method: String(record["method"]),
+		mintUrl: String(record["mintUrl"]),
+		request: String(record["request"]),
+		unit: String(record["unit"]),
+		amount: optionalAmountToString(record["amount"]),
+		state: record["state"] === undefined ? undefined : String(record["state"]),
+		expiry:
+			typeof record["expiry"] === "number" ? record["expiry"] : null,
+		feeReserve: optionalAmountToString(record["fee_reserve"]),
+		createdAt: Number(record["createdAt"]),
+		updatedAt: Number(record["updatedAt"]),
+	};
+}
+
+function toWalletOperation(
+	type: WalletOperationDto["type"],
+	operation: unknown,
+): WalletOperationDto {
+	const record = operation as Record<string, unknown>;
+
+	return {
+		id: String(record["id"]),
+		type,
+		state: String(record["state"]),
+		mintUrl: String(record["mintUrl"]),
+		unit: String(record["unit"] ?? "sat"),
+		amount: optionalAmountToString(record["amount"]),
+		fee:
+			optionalAmountToString(record["fee"]) ??
+			optionalAmountToString(record["fee_reserve"]) ??
+			optionalAmountToString(record["swap_fee"]),
+		inputAmount: optionalAmountToString(record["inputAmount"]),
+		needsSwap:
+			typeof record["needsSwap"] === "boolean"
+				? record["needsSwap"]
+				: undefined,
+		quoteId:
+			typeof record["quoteId"] === "string" ? record["quoteId"] : undefined,
+		request:
+			typeof record["request"] === "string" ? record["request"] : undefined,
+		token:
+			record["token"] === undefined
+				? undefined
+				: encodeTokenValue(record["token"]),
+		error: typeof record["error"] === "string" ? record["error"] : undefined,
+		createdAt: Number(record["createdAt"]),
+		updatedAt: Number(record["updatedAt"]),
+	};
+}
+
+function toWalletHistory(entry: HistoryEntry): WalletHistoryDto {
+	const record = entry as unknown as Record<string, unknown>;
+
+	return {
+		id: entry.id,
+		type: entry.type,
+		source: entry.source,
+		state: String(record["state"]),
+		mintUrl: entry.mintUrl,
+		unit: entry.unit,
+		amount: amountToString(record["amount"]),
+		operationId:
+			typeof record["operationId"] === "string"
+				? record["operationId"]
+				: undefined,
+		quoteId: typeof record["quoteId"] === "string" ? record["quoteId"] : undefined,
+		error: typeof record["error"] === "string" ? record["error"] : undefined,
+		createdAt: entry.createdAt,
+		updatedAt: entry.updatedAt,
+	};
+}
+
+function uniqueOperations(operations: WalletOperationDto[]) {
+	const byId = new Map<string, WalletOperationDto>();
+	for (const operation of operations) {
+		byId.set(`${operation.type}:${operation.id}`, operation);
+	}
+
+	return [...byId.values()].sort((left, right) => right.updatedAt - left.updatedAt);
+}
+
+function onlyPreparedOperation(operation: WalletOperationDto | null) {
+	return operation?.state === "prepared" ? operation : null;
+}
+
+function optionalAmountToString(value: unknown): string | undefined {
+	if (value === null || value === undefined) {
+		return undefined;
+	}
+
+	return amountToString(value);
+}
+
+function amountToString(value: unknown): string {
+	if (typeof value === "string") {
+		return value;
+	}
+	if (typeof value === "number" || typeof value === "bigint") {
+		return value.toString();
+	}
+	if (value && typeof value === "object" && "toString" in value) {
+		return String(value.toString());
+	}
+
+	return String(value ?? "0");
+}
+
+function encodeTokenValue(token: unknown): string {
+	if (typeof token === "string") {
+		return token;
+	}
+
+	try {
+		return getEncodedToken(token as Parameters<typeof getEncodedToken>[0]);
+	} catch {
+		return JSON.stringify(token);
+	}
 }
 
 function getOperationTypeLabel(type: WalletOperationDto["type"]) {

@@ -10,6 +10,7 @@ import type {
 	ManagerMeltOperationDto,
 	ManagerMeltQuoteDto,
 	ManagerMintOperationDto,
+	ManagerMintQuoteDto,
 	ManagerPreparedReceiveOperationDto,
 	ManagerReceiveOperationDto,
 	ManagerSendOperationDto,
@@ -83,12 +84,25 @@ describe("manager RPC handlers", () => {
 		).resolves.toEqual({
 			sat: serializedBalance("sat"),
 		});
-		await expect(
-			handlers.managerHistoryGetPaginatedHistory({ offset: 10, limit: 5 }),
-		).resolves.toEqual([serializedHistoryEntry("history-1", "123")]);
-		await expect(
-			handlers.managerMintOpsPrepare({
-				quote: {
+			await expect(
+				handlers.managerHistoryGetPaginatedHistory({ offset: 10, limit: 5 }),
+			).resolves.toEqual([serializedHistoryEntry("history-1", "123")]);
+			await expect(
+				handlers.managerMintQuoteCreate({
+					mintUrl: "https://mint.example",
+					method: "bolt11",
+					amount: {
+						amount: "21",
+						unit: "sat",
+					},
+				}),
+			).resolves.toEqual(serializedMintQuote("quote-1"));
+			await expect(
+				handlers.managerMintQuoteListPending({ method: "bolt11" }),
+			).resolves.toEqual([serializedMintQuote("quote-1")]);
+			await expect(
+				handlers.managerMintOpsPrepare({
+					quote: {
 					mintUrl: "https://mint.example",
 					method: "bolt11",
 					quoteId: "quote-1",
@@ -182,10 +196,22 @@ describe("manager RPC handlers", () => {
 					units: ["sat"],
 					trustedOnly: true,
 				},
-			],
-			["getPaginatedHistory", 10, 5],
-			[
-				"mintOps.prepare",
+				],
+				["getPaginatedHistory", 10, 5],
+				[
+					"mintQuote.create",
+					{
+						mintUrl: "https://mint.example",
+						method: "bolt11",
+						amount: {
+							amount: "21",
+							unit: "sat",
+						},
+					},
+				],
+				["mintQuote.listPending", { method: "bolt11" }],
+				[
+					"mintOps.prepare",
 				{
 					quote: {
 						mintUrl: "https://mint.example",
@@ -209,6 +235,21 @@ describe("manager RPC handlers", () => {
 			],
 			["mintOps.listPending"],
 			["mintOps.listInFlight"],
+		]);
+	});
+
+	it("maps wallet restore requests to the manager wallet API", async () => {
+		const calls: unknown[] = [];
+		const manager = createFakeManager(calls);
+		const handlers = createManagerRpcRequestHandlers(async () => manager);
+
+		await handlers.managerWalletRestore({
+			mintUrl: "https://mint.example",
+			options: { units: ["sat"] },
+		});
+
+		expect(calls).toEqual([
+			["wallet.restore", "https://mint.example", { units: ["sat"] }],
 		]);
 	});
 
@@ -779,6 +820,9 @@ function createFakeManager(calls: unknown[]) {
 					};
 				},
 			},
+			restore: async (mintUrl: string, options?: { units?: string[] }) => {
+				calls.push(["wallet.restore", mintUrl, options]);
+			},
 		},
 			history: {
 				getPaginatedHistory: async (offset?: number, limit?: number) => {
@@ -786,10 +830,20 @@ function createFakeManager(calls: unknown[]) {
 					return [rawHistoryEntry("history-1", 123n)];
 				},
 			},
-			quotes: {
-				melt: {
-					create: async (params: unknown) => {
-						calls.push(["meltQuote.create", params]);
+				quotes: {
+					mint: {
+						create: async (params: unknown) => {
+							calls.push(["mintQuote.create", params]);
+							return rawMintQuote("quote-1");
+						},
+						listPending: async (params?: unknown) => {
+							calls.push(["mintQuote.listPending", params]);
+							return [rawMintQuote("quote-1")];
+						},
+					},
+					melt: {
+						create: async (params: unknown) => {
+							calls.push(["meltQuote.create", params]);
 						return rawMeltQuote("quote-1");
 					},
 					get: async (params: unknown) => {
@@ -1281,6 +1335,41 @@ function serializedPreparedReceiveOperation(
 		outputData: { outputs: [] },
 		...overrides,
 		state: "prepared",
+	};
+}
+
+function rawMintQuote(quoteId: string, overrides: Record<string, unknown> = {}) {
+	return {
+		mintUrl: "https://mint.example",
+		method: "bolt11",
+		quoteId,
+		request: "lnbc1...",
+		amount: amountLike("21"),
+		unit: "sat",
+		expiry: 123,
+		state: "UNPAID",
+		createdAt: 18,
+		updatedAt: 19,
+		...overrides,
+	};
+}
+
+function serializedMintQuote(
+	quoteId: string,
+	overrides: Partial<ManagerMintQuoteDto> = {},
+): ManagerMintQuoteDto {
+	return {
+		mintUrl: "https://mint.example",
+		method: "bolt11",
+		quoteId,
+		request: "lnbc1...",
+		amount: "21",
+		unit: "sat",
+		expiry: 123,
+		state: "UNPAID",
+		createdAt: 18,
+		updatedAt: 19,
+		...overrides,
 	};
 }
 

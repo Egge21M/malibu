@@ -16,6 +16,7 @@
 	},
 	"dependencies": {
 		"@cashu/coco-core": "rc",
+		"@cashu/coco-react": "rc",
 		"@cashu/coco-sqlite-bun": "rc",
 		"@fontsource-variable/jetbrains-mono": "^5.2.8",
 		"@tailwindcss/vite": "^4",
