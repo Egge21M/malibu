@@ -13,6 +13,7 @@ import {
 } from "coco-cashu-plugin-npc";
 import { npubEncode } from "nostr-tools/nip19";
 import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
+import { JWTAuthProvider, NPCClient } from "npubcash-sdk";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -33,6 +34,8 @@ export class CashuWalletService {
 	private database: Database | undefined;
 	private npcPlugin: NPCPlugin | undefined;
 	private npcSecretPromise: Promise<Uint8Array> | undefined;
+	private npcClientPromise: Promise<NPCClient> | undefined;
+	private npcMintPolicyPromise: Promise<NpcMintPolicy> | undefined;
 
 	constructor(dataDir = resolveWalletDataDir()) {
 		this.dataDir = dataDir;
@@ -57,13 +60,17 @@ export class CashuWalletService {
 	async getNpcState(): Promise<NpcStateDto> {
 		const manager = await this.getManager();
 		const account = manager.ext.npc.getAccount(DEFAULT_NPC_ACCOUNT_ID);
-		const pluginStatus = manager.ext.npc.getStatus();
 		const accountSummary = manager.ext.npc
 			.listAccounts()
 			.find((entry) => entry.id === DEFAULT_NPC_ACCOUNT_ID);
 		const baseUrl = accountSummary?.baseUrl ?? getNpcBaseUrl();
 		const publicKey = getPublicKey(await this.getNpcSecret());
 		const fallbackLightningAddress = getNpcLightningAddress(null, publicKey, baseUrl);
+		const mintPolicy = await this.reconcileNpcMintPolicy(manager);
+		const currentPluginStatus = manager.ext.npc.getStatus();
+		const currentAccountSummary = manager.ext.npc
+			.listAccounts()
+			.find((entry) => entry.id === DEFAULT_NPC_ACCOUNT_ID);
 
 		if (!account) {
 			return {
@@ -72,11 +79,50 @@ export class CashuWalletService {
 				baseUrl,
 				publicKey,
 				lightningAddress: fallbackLightningAddress,
+				receiveMintUrl: mintPolicy.receiveMintUrl,
+				serverMintUrl: mintPolicy.serverMintUrl,
+				canSync: mintPolicy.canSync,
+				mintStatus: mintPolicy.status,
+				mintStatusDetail: mintPolicy.detail,
+				blockedMintUrls: [],
 				username: null,
 				user: null,
-				status: pluginStatus,
-				account: accountSummary ?? null,
+				status: currentPluginStatus,
+				account: currentAccountSummary ?? null,
 				error: "NPC account is not registered.",
+			};
+		}
+
+		if (!mintPolicy.canSync) {
+			let username: string | null = null;
+			let lightningAddress = fallbackLightningAddress;
+			if (mintPolicy.status === "waiting-for-mint") {
+				try {
+					const user = await withoutConsoleLog(() => account.getInfo());
+					username = getNpcUsername(user);
+					lightningAddress = getNpcLightningAddress(username, publicKey, baseUrl);
+				} catch {
+					// Identity lookup is best-effort while payment import is disabled.
+				}
+			}
+
+			return {
+				enabled: true,
+				accountId: DEFAULT_NPC_ACCOUNT_ID,
+				baseUrl,
+				publicKey,
+				lightningAddress,
+				receiveMintUrl: mintPolicy.receiveMintUrl,
+				serverMintUrl: mintPolicy.serverMintUrl,
+				canSync: false,
+				mintStatus: mintPolicy.status,
+				mintStatusDetail: mintPolicy.detail,
+				blockedMintUrls: [],
+				username,
+				user: null,
+				status: currentPluginStatus,
+				account: account.getStatus(),
+				error: mintPolicy.status === "blocked" ? (mintPolicy.detail ?? undefined) : undefined,
 			};
 		}
 
@@ -89,6 +135,12 @@ export class CashuWalletService {
 				baseUrl,
 				publicKey,
 				lightningAddress: getNpcLightningAddress(username, publicKey, baseUrl),
+				receiveMintUrl: mintPolicy.receiveMintUrl,
+				serverMintUrl: user.mintUrl,
+				canSync: mintPolicy.canSync,
+				mintStatus: mintPolicy.status,
+				mintStatusDetail: mintPolicy.detail,
+				blockedMintUrls: [],
 				username,
 				user: {
 					pubkey: user.pubkey,
@@ -96,7 +148,7 @@ export class CashuWalletService {
 					mintUrl: user.mintUrl,
 					lockQuote: user.lockQuote,
 				},
-				status: pluginStatus,
+				status: currentPluginStatus,
 				account: account.getStatus(),
 			};
 		} catch (error) {
@@ -106,9 +158,15 @@ export class CashuWalletService {
 				baseUrl,
 				publicKey,
 				lightningAddress: fallbackLightningAddress,
+				receiveMintUrl: mintPolicy.receiveMintUrl,
+				serverMintUrl: mintPolicy.serverMintUrl,
+				canSync: mintPolicy.canSync,
+				mintStatus: mintPolicy.status,
+				mintStatusDetail: mintPolicy.detail,
+				blockedMintUrls: [],
 				username: null,
 				user: null,
-				status: pluginStatus,
+				status: currentPluginStatus,
 				account: account.getStatus(),
 				error: getErrorMessage(error),
 			};
@@ -121,6 +179,7 @@ export class CashuWalletService {
 		if (!account) {
 			throw new Error("NPC account is not registered.");
 		}
+		await this.assertNpcCanSync(manager, account, getNpcBaseUrl());
 		await account.sync();
 		return this.getNpcState();
 	}
@@ -195,8 +254,9 @@ export class CashuWalletService {
 			id: DEFAULT_NPC_ACCOUNT_ID,
 			baseUrl: getNpcBaseUrl(),
 			signer: await this.getNpcSigner(),
-			autoStart: true,
+			autoStart: false,
 		});
+		await this.reconcileNpcMintPolicy(manager);
 
 		return manager;
 	}
@@ -211,6 +271,167 @@ export class CashuWalletService {
 		return async (template: Parameters<typeof finalizeEvent>[0]) => {
 			return finalizeEvent(template, secretKey);
 		};
+	}
+
+	private async getNpcSettingsClient(): Promise<NPCClient> {
+		this.npcClientPromise ??= this.createNpcSettingsClient();
+		return this.npcClientPromise;
+	}
+
+	private async createNpcSettingsClient(): Promise<NPCClient> {
+		const baseUrl = getNpcBaseUrl();
+		return new NPCClient(
+			baseUrl,
+			new JWTAuthProvider(baseUrl, await this.getNpcSigner()),
+		);
+	}
+
+	private async reconcileNpcMintPolicy(manager: Manager): Promise<NpcMintPolicy> {
+		this.npcMintPolicyPromise ??= this.reconcileNpcMintPolicyOnce(manager)
+			.finally(() => {
+				this.npcMintPolicyPromise = undefined;
+			});
+		return this.npcMintPolicyPromise;
+	}
+
+	private async reconcileNpcMintPolicyOnce(manager: Manager): Promise<NpcMintPolicy> {
+		const account = manager.ext.npc.getAccount(DEFAULT_NPC_ACCOUNT_ID);
+		const receiveMintUrl = await getPreferredNpcReceiveMintUrl(manager);
+		if (!account) {
+			return {
+				status: "blocked",
+				receiveMintUrl,
+				serverMintUrl: null,
+				canSync: false,
+				detail: "NPC account is not registered.",
+			};
+		}
+
+		if (!receiveMintUrl) {
+			await account.stop();
+			return {
+				status: "waiting-for-mint",
+				receiveMintUrl: null,
+				serverMintUrl: null,
+				canSync: false,
+				detail: "Add a trusted mint before NPC imports payments.",
+			};
+		}
+
+		let user: NpcUserLike | null = null;
+		try {
+			user = await withoutConsoleLog(() => account.getInfo());
+		} catch (error) {
+			await account.stop();
+			return {
+				status: "blocked",
+				receiveMintUrl,
+				serverMintUrl: null,
+				canSync: false,
+				detail: getErrorMessage(error),
+			};
+		}
+
+		if (!mintUrlsEqual(user.mintUrl, receiveMintUrl)) {
+			await account.stop();
+			try {
+				const response = await (await this.getNpcSettingsClient())
+					.settings.setMintUrl(receiveMintUrl);
+				user = response.error === false
+					? response.data.user
+					: await withoutConsoleLog(() => account.getInfo());
+			} catch (error) {
+				return {
+					status: "blocked",
+					receiveMintUrl,
+					serverMintUrl: user.mintUrl,
+					canSync: false,
+					detail: `NPC mint could not be updated: ${getErrorMessage(error)}`,
+				};
+			}
+		}
+
+		if (!mintUrlsEqual(user.mintUrl, receiveMintUrl)) {
+			await account.stop();
+			return {
+				status: "blocked",
+				receiveMintUrl,
+				serverMintUrl: user.mintUrl,
+				canSync: false,
+				detail: "NPC server mint does not match the wallet receive mint.",
+			};
+		}
+
+		await account.stop();
+		return {
+			status: "ready",
+			receiveMintUrl,
+			serverMintUrl: user.mintUrl,
+			canSync: true,
+			detail: null,
+		};
+	}
+
+	private async assertNpcCanSync(
+		manager: Manager,
+		account: NonNullable<ReturnType<Manager["ext"]["npc"]["getAccount"]>>,
+		baseUrl: string,
+	): Promise<void> {
+		const mintPolicy = await this.reconcileNpcMintPolicy(manager);
+		if (!mintPolicy.canSync) {
+			throw new Error(mintPolicy.detail ?? "NPC is not ready to sync.");
+		}
+
+		const blockedMintUrls = await this.getUntrustedNpcQuoteMintUrls(
+			manager,
+			account,
+			baseUrl,
+		);
+		if (blockedMintUrls.length) {
+			throw new Error(
+				`NPC has paid quotes for untrusted mint${
+					blockedMintUrls.length === 1 ? "" : "s"
+				}: ${blockedMintUrls.join(", ")}. Trust ${
+					blockedMintUrls.length === 1 ? "that mint" : "those mints"
+				} before syncing NPC payments.`,
+			);
+		}
+	}
+
+	private async getUntrustedNpcQuoteMintUrls(
+		manager: Manager,
+		account: NonNullable<ReturnType<Manager["ext"]["npc"]["getAccount"]>>,
+		baseUrl: string,
+	): Promise<string[]> {
+		const trustedMintUrls = new Set(
+			(await manager.mint.getAllTrustedMints()).map((mint) =>
+				normalizeMintUrlForCompare(mint.mintUrl),
+			),
+		);
+		const since = this.getNpcSince(DEFAULT_NPC_ACCOUNT_ID, baseUrl);
+		const quotes = await account.getQuotesSince(since);
+		const blockedMintUrls = new Map<string, string>();
+
+		for (const quote of quotes as NpcQuoteLike[]) {
+			if (quote.paidAt <= since || typeof quote.mintUrl !== "string") {
+				continue;
+			}
+
+			if (!trustedMintUrls.has(normalizeMintUrlForCompare(quote.mintUrl))) {
+				blockedMintUrls.set(normalizeMintUrlForCompare(quote.mintUrl), quote.mintUrl);
+			}
+		}
+
+		return Array.from(blockedMintUrls.values()).sort();
+	}
+
+	private getNpcSince(accountId: string, baseUrl: string): number {
+		const row = this.database
+			?.query<{ since: number }, [string, string]>(
+				"SELECT since FROM npc_since WHERE account_id = ? AND base_url = ?",
+			)
+			.get(accountId, baseUrl);
+		return row?.since ?? 0;
 	}
 }
 
@@ -350,6 +571,28 @@ type NPCAccountRow = {
 	updatedAt: number;
 };
 
+type NpcMintPolicyStatus = "waiting-for-mint" | "ready" | "blocked";
+
+type NpcMintPolicy = {
+	status: NpcMintPolicyStatus;
+	receiveMintUrl: string | null;
+	serverMintUrl: string | null;
+	canSync: boolean;
+	detail: string | null;
+};
+
+type NpcUserLike = {
+	pubkey: string;
+	name?: string | null;
+	mintUrl: string;
+	lockQuote: boolean;
+};
+
+type NpcQuoteLike = {
+	mintUrl?: string;
+	paidAt: number;
+};
+
 function resolveWalletDataDir() {
 	const override = Bun.env.MALIBU_WALLET_DIR?.trim();
 	if (override) {
@@ -401,6 +644,26 @@ function getOrCreateSeed(dataDir: string): Uint8Array {
 
 function getNpcBaseUrl() {
 	return Bun.env.MALIBU_NPC_BASE_URL?.trim() || DEFAULT_NPC_BASE_URL;
+}
+
+async function getPreferredNpcReceiveMintUrl(manager: Manager): Promise<string | null> {
+	const trustedMints = await manager.mint.getAllTrustedMints();
+	return trustedMints[0]?.mintUrl ?? null;
+}
+
+function mintUrlsEqual(a: string, b: string) {
+	return normalizeMintUrlForCompare(a) === normalizeMintUrlForCompare(b);
+}
+
+function normalizeMintUrlForCompare(mintUrl: string) {
+	try {
+		const url = new URL(mintUrl);
+		url.hash = "";
+		url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+		return url.toString().replace(/\/$/, "");
+	} catch {
+		return mintUrl.trim().replace(/\/+$/, "");
+	}
 }
 
 async function deriveNpcSecret(seed: Uint8Array): Promise<Uint8Array> {

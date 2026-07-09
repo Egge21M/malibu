@@ -500,6 +500,7 @@ function WalletWorkspace() {
 				refreshBalances(),
 				refreshHistory(),
 				loadOperations(),
+				walletClient.npc.getState().then(setNpcState),
 			]);
 			setStatus({ kind: "success", title: successTitle });
 		} catch (error) {
@@ -1250,13 +1251,9 @@ function OverviewScreen() {
 							/>
 							<ReadinessRow
 								icon={Landmark}
-								label="Trusted mint access"
-								value={
-									wallet.trustedMints.length
-										? `${wallet.trustedMints.length} available`
-										: "None"
-								}
-								state={wallet.trustedMints.length ? "ok" : "warn"}
+								label="NPC mint"
+								value={getNpcMintStatusLabel(wallet.npcState)}
+								state={getNpcMintStatusState(wallet.npcState)}
 							/>
 							<ReadinessRow
 								icon={Activity}
@@ -1830,6 +1827,8 @@ function LightningAddressCard() {
 	const addressLabel = address ?? "Loading address";
 	const syncBusy = wallet.busy === "syncNpc";
 	const usernameClaimed = wallet.npcState?.username !== null && wallet.npcState?.username !== undefined;
+	const canSyncNpc = wallet.npcState?.canSync ?? false;
+	const mintStatusDetail = getNpcMintStatusDetail(wallet.npcState);
 
 	return (
 		<Card>
@@ -1840,8 +1839,8 @@ function LightningAddressCard() {
 				</CardTitle>
 				<CardDescription>{getNpcHost(wallet.npcState)}</CardDescription>
 				<CardAction>
-					<Badge variant={address ? "default" : "secondary"}>
-						{usernameClaimed ? "username" : "npub"}
+					<Badge variant={address && canSyncNpc ? "default" : "secondary"}>
+						{canSyncNpc ? (usernameClaimed ? "username" : "npub") : "waiting"}
 					</Badge>
 				</CardAction>
 			</CardHeader>
@@ -1858,13 +1857,19 @@ function LightningAddressCard() {
 						<AlertDescription>{wallet.npcState.error}</AlertDescription>
 					</Alert>
 				) : null}
+				{wallet.npcState && wallet.npcState.mintStatus !== "ready" && !wallet.npcState.error ? (
+					<Alert>
+						<AlertTitle>{getNpcMintStatusLabel(wallet.npcState)}</AlertTitle>
+						<AlertDescription>{mintStatusDetail}</AlertDescription>
+					</Alert>
+				) : null}
 				<div className="flex flex-wrap gap-2">
 					{address ? <CopyButton value={address} /> : null}
 					<Button
 						type="button"
 						variant="outline"
 						size="sm"
-						disabled={wallet.busy !== null}
+						disabled={wallet.busy !== null || !canSyncNpc}
 						onClick={wallet.handleSyncNpc}
 					>
 						<RefreshCw
@@ -1894,6 +1899,7 @@ function NpcUsernameCard() {
 		? wallet.lastNpcUsernameResult.paymentRequest
 		: null;
 	const usernameClaimed = wallet.npcState?.username !== null && wallet.npcState?.username !== undefined;
+	const canSyncNpc = wallet.npcState?.canSync ?? false;
 
 	return (
 		<Card size="sm">
@@ -1906,8 +1912,8 @@ function NpcUsernameCard() {
 					{wallet.npcState?.lightningAddress ?? getNpcHost(wallet.npcState)}
 				</CardDescription>
 				<CardAction>
-					<Badge variant={usernameClaimed ? "default" : "secondary"}>
-						{usernameClaimed ? "claimed" : "npub fallback"}
+					<Badge variant={usernameClaimed && canSyncNpc ? "default" : "secondary"}>
+						{usernameClaimed ? "claimed" : canSyncNpc ? "npub fallback" : "waiting"}
 					</Badge>
 				</CardAction>
 			</CardHeader>
@@ -1943,7 +1949,7 @@ function NpcUsernameCard() {
 							type="button"
 							variant="ghost"
 							size="sm"
-							disabled={wallet.busy !== null}
+							disabled={wallet.busy !== null || !canSyncNpc}
 							onClick={wallet.handleSyncNpc}
 						>
 							<RefreshCw data-icon="inline-start" />
@@ -2935,6 +2941,56 @@ function getNpcHost(state: NpcStateDto | null) {
 	} catch {
 		return state.baseUrl;
 	}
+}
+
+function getNpcMintStatusLabel(state: NpcStateDto | null) {
+	if (!state) {
+		return "Loading";
+	}
+
+	if (state.mintStatus === "ready") {
+		return "Aligned";
+	}
+
+	if (state.mintStatus === "waiting-for-mint") {
+		return "Waiting for mint";
+	}
+
+	return "Needs attention";
+}
+
+function getNpcMintStatusState(
+	state: NpcStateDto | null,
+): "ok" | "warn" | "muted" {
+	if (!state) {
+		return "muted";
+	}
+
+	if (state.mintStatus === "ready") {
+		return "ok";
+	}
+
+	if (state.mintStatus === "blocked") {
+		return "warn";
+	}
+
+	return "muted";
+}
+
+function getNpcMintStatusDetail(state: NpcStateDto | null) {
+	if (!state) {
+		return "NPC account loading";
+	}
+
+	if (state.mintStatusDetail) {
+		return state.mintStatusDetail;
+	}
+
+	if (state.receiveMintUrl) {
+		return state.receiveMintUrl;
+	}
+
+	return "Add a trusted mint before NPC imports payments.";
 }
 
 function formatPaymentRequestAmount(paymentRequest: NpcPaymentRequestDto) {

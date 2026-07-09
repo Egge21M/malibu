@@ -35,6 +35,12 @@ export type NpcStateDto = {
 	baseUrl: string;
 	publicKey: string;
 	lightningAddress: string | null;
+	receiveMintUrl: string | null;
+	serverMintUrl: string | null;
+	canSync: boolean;
+	mintStatus: "waiting-for-mint" | "ready" | "blocked";
+	mintStatusDetail: string | null;
+	blockedMintUrls: string[];
 	username: string | null;
 	user: NpcUserDto | null;
 	status: NpcPluginStatusDto;
