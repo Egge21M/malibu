@@ -209,6 +209,13 @@ const walletRpc = BrowserView.defineRPC<WalletRpcSchema>({
 				return managerRpcRequestHandlers.managerMeltFinalize(params);
 			},
 			dataDir: () => walletService.getDataDir(),
+			npcGetState: () => walletService.getNpcState(),
+			npcSync: () => walletService.syncNpcAccount(),
+			npcSetUsername: (params) =>
+				walletService.setNpcUsername(
+					params.username,
+					params.attemptPayment ?? false,
+				),
 		},
 		messages: {
 			managerEventSubscribe: (params) =>

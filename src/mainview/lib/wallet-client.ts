@@ -31,6 +31,12 @@ function getRpc() {
 
 export const walletClient = {
 	dataDir: () => getRpc().request.dataDir(),
+	npc: {
+		getState: () => getRpc().request.npcGetState(),
+		sync: () => getRpc().request.npcSync(),
+		setUsername: (username: string, attemptPayment = false) =>
+			getRpc().request.npcSetUsername({ username, attemptPayment }),
+	},
 };
 
 export function getRemoteCocoManager() {
