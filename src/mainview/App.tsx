@@ -22,14 +22,24 @@ import {
 } from "@cashu/coco-react";
 import {
 	Activity,
+	ArrowDownLeft,
+	ArrowRight,
+	ArrowUpRight,
 	AtSign,
 	Check,
+	CircleCheck,
+	CircleDashed,
 	Copy,
 	Database,
 	Download,
 	History,
 	Home,
 	Landmark,
+	Laptop,
+	LockKeyhole,
+	Moon,
+	MoreHorizontal,
+	Network,
 	Plus,
 	RefreshCw,
 	ReceiptText,
@@ -37,6 +47,8 @@ import {
 	Send,
 	Settings,
 	ShieldCheck,
+	Sparkles,
+	Sun,
 	UserRound,
 	Wallet,
 	X,
@@ -50,6 +62,7 @@ import {
 	Routes,
 	useLocation,
 } from "react-router";
+import { toast } from "sonner";
 
 import {
 	Alert,
@@ -63,12 +76,25 @@ import {
 	CardAction,
 	CardContent,
 	CardDescription,
+	CardFooter,
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
+import { Avatar, AvatarBadge, AvatarFallback } from "@/components/ui/avatar";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuGroup,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
 	Empty,
+	EmptyDescription,
 	EmptyHeader,
+	EmptyMedia,
 	EmptyTitle,
 } from "@/components/ui/empty";
 import {
@@ -77,7 +103,24 @@ import {
 	FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import {
+	InputGroup,
+	InputGroupAddon,
+	InputGroupInput,
+	InputGroupText,
+	InputGroupTextarea,
+} from "@/components/ui/input-group";
+import {
+	Item,
+	ItemActions,
+	ItemContent,
+	ItemDescription,
+	ItemGroup,
+	ItemMedia,
+	ItemTitle,
+} from "@/components/ui/item";
 import { Progress } from "@/components/ui/progress";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
 	Select,
 	SelectContent,
@@ -96,6 +139,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
 	Sidebar,
 	SidebarContent,
+	SidebarFooter,
 	SidebarGroup,
 	SidebarGroupContent,
 	SidebarGroupLabel,
@@ -110,6 +154,7 @@ import {
 	SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useTheme } from "@/components/theme-provider";
 import { cn } from "@/lib/utils";
 import { getRemoteCocoManager, walletClient } from "@/lib/wallet-client";
 import type { ManagerEventName } from "@/lib/manager-rpc";
@@ -215,10 +260,10 @@ const ZERO_TOTAL = {
 
 const PRIMARY_ROUTES: RouteItem[] = [
 	{ path: "/", label: "Overview", icon: Home },
-	{ path: "/mints", label: "Mints", icon: Landmark },
-	{ path: "/send", label: "Send", icon: Send },
-	{ path: "/receive", label: "Receive", icon: Check },
+	{ path: "/send", label: "Send", icon: ArrowUpRight },
+	{ path: "/receive", label: "Receive", icon: ArrowDownLeft },
 	{ path: "/activity", label: "Activity", icon: History },
+	{ path: "/mints", label: "Mints", icon: Landmark },
 	{ path: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -895,49 +940,81 @@ function WalletWorkspace() {
 
 function WalletShell() {
 	const wallet = useWallet();
-	const walletConnected = wallet.snapshot !== null && wallet.status?.kind !== "error";
+	const location = useLocation();
+	const currentRoute = PRIMARY_ROUTES.find((route) =>
+		route.path === "/"
+			? location.pathname === "/"
+			: location.pathname.startsWith(route.path),
+	) ?? PRIMARY_ROUTES[0];
+	const walletConnected =
+		wallet.snapshot !== null && wallet.status?.kind !== "error";
 	useWheelScrollFallback();
+
+	React.useEffect(() => {
+		if (!wallet.status) {
+			return;
+		}
+
+		const options = {
+			description: wallet.status.message,
+			id: "wallet-status",
+		};
+
+		if (wallet.status.kind === "error") {
+			toast.error(wallet.status.title, options);
+			return;
+		}
+
+		if (wallet.status.kind === "success") {
+			toast.success(wallet.status.title, options);
+			return;
+		}
+
+		toast.info(wallet.status.title, options);
+	}, [wallet.status]);
+
+	React.useEffect(() => {
+		window.scrollTo(0, 0);
+	}, [location.pathname]);
 
 	return (
 		<TooltipProvider>
 			<SidebarProvider
+				defaultOpen
 				style={
 					{
-						"--sidebar-width": "15rem",
+						"--sidebar-width": "16.5rem",
 					} as React.CSSProperties
 				}
 			>
 				<AppSidebar />
-				<SidebarInset className="min-h-svh bg-background text-foreground">
-					<header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur">
-						<div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+				<SidebarInset className="min-h-svh overflow-hidden text-foreground">
+					<header className="sticky top-0 z-20 bg-background/80 backdrop-blur-xl">
+						<div className="mx-auto flex max-w-[90rem] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
 							<div className="flex min-w-0 items-center gap-3">
 								<SidebarTrigger aria-label="Toggle wallet navigation" />
-								<div className="flex size-10 shrink-0 items-center justify-center border bg-primary text-primary-foreground shadow-sm">
-									<Wallet className="size-4" />
-								</div>
 								<div className="min-w-0">
-									<h1 className="truncate text-base font-semibold tracking-wider uppercase">
-										Malibu
+									<p className="text-xs font-medium text-muted-foreground">Wallet</p>
+									<h1 className="truncate text-lg font-semibold tracking-tight">
+										{currentRoute.label}
 									</h1>
-									<p className="hidden truncate text-xs text-muted-foreground sm:block">
-										Private Cashu wallet powered by Coco
-									</p>
 								</div>
 							</div>
 							<div className="flex shrink-0 items-center gap-2">
-								<Badge variant={walletConnected ? "default" : "secondary"}>
-									{walletConnected ? "connected" : "connecting"}
-								</Badge>
 								<Badge
-									variant={wallet.trustedMints.length ? "default" : "secondary"}
+									variant={walletConnected ? "secondary" : "outline"}
 									className="hidden sm:inline-flex"
 								>
-									{wallet.trustedMints.length} trusted mints
+									{walletConnected ? (
+										<CircleCheck data-icon="inline-start" />
+									) : (
+										<CircleDashed data-icon="inline-start" />
+									)}
+									{walletConnected ? "Synced" : "Connecting"}
 								</Badge>
 								<Button
 									type="button"
-									variant="outline"
+									variant="ghost"
 									size="icon-sm"
 									aria-label="Refresh wallet"
 									disabled={wallet.busy !== null}
@@ -947,13 +1024,16 @@ function WalletShell() {
 										className={cn(wallet.busy === "refresh" && "animate-spin")}
 									/>
 								</Button>
+								<WalletMenu />
 							</div>
 						</div>
 					</header>
 
-					<div className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 lg:py-7">
-						<main className="flex min-w-0 flex-col gap-5">
-							{wallet.status ? <StatusAlert status={wallet.status} /> : null}
+					<div className="mx-auto w-full max-w-[90rem] px-4 pb-24 pt-2 sm:px-6 md:pb-8 lg:px-8 lg:pt-4">
+						<main className="flex min-w-0 flex-col gap-6">
+							{wallet.status?.kind === "error" ? (
+								<StatusAlert status={wallet.status} />
+							) : null}
 							<Routes>
 								<Route index element={<OverviewScreen />} />
 								<Route path="mint" element={<Navigate to="/receive" replace />} />
@@ -967,18 +1047,110 @@ function WalletShell() {
 							</Routes>
 						</main>
 					</div>
+					<MobileActionDock />
 				</SidebarInset>
 			</SidebarProvider>
 		</TooltipProvider>
 	);
 }
 
-function AppSidebar() {
+function WalletMenu() {
 	const wallet = useWallet();
+	const { theme, setTheme } = useTheme();
+	const identity = wallet.npcState?.lightningAddress ?? "Private wallet";
 
 	return (
-		<Sidebar collapsible="icon">
-			<SidebarHeader>
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				render={
+					<Button variant="ghost" size="icon-lg" aria-label="Open wallet menu" />
+				}
+			>
+				<Avatar>
+					<AvatarFallback>M</AvatarFallback>
+					<AvatarBadge />
+				</Avatar>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="end" className="w-56">
+				<DropdownMenuGroup>
+					<DropdownMenuLabel>
+						<span className="block text-foreground">Malibu</span>
+						<span className="block truncate font-normal">{identity}</span>
+					</DropdownMenuLabel>
+				</DropdownMenuGroup>
+				<DropdownMenuSeparator />
+				<DropdownMenuGroup>
+					<DropdownMenuLabel>Appearance</DropdownMenuLabel>
+					<DropdownMenuItem onClick={() => setTheme("light")}>
+						<Sun />
+						Light
+						{theme === "light" ? <Check className="ml-auto" /> : null}
+					</DropdownMenuItem>
+					<DropdownMenuItem onClick={() => setTheme("dark")}>
+						<Moon />
+						Dark
+						{theme === "dark" ? <Check className="ml-auto" /> : null}
+					</DropdownMenuItem>
+					<DropdownMenuItem onClick={() => setTheme("system")}>
+						<Laptop />
+						System
+						{theme === "system" ? <Check className="ml-auto" /> : null}
+					</DropdownMenuItem>
+				</DropdownMenuGroup>
+				<DropdownMenuSeparator />
+				<DropdownMenuGroup>
+					<DropdownMenuItem
+						render={<NavLink to="/settings" />}
+					>
+						<Settings />
+						Wallet settings
+					</DropdownMenuItem>
+				</DropdownMenuGroup>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
+function MobileActionDock() {
+	const location = useLocation();
+
+	return (
+		<nav className="fixed inset-x-3 bottom-3 z-30 grid grid-cols-4 gap-1 rounded-2xl border bg-background/90 p-1.5 shadow-xl backdrop-blur-xl md:hidden">
+			{[
+				{ path: "/", label: "Home", icon: Home },
+				{ path: "/send", label: "Send", icon: ArrowUpRight },
+				{ path: "/receive", label: "Receive", icon: ArrowDownLeft },
+				{ path: "/activity", label: "Activity", icon: Activity },
+			].map((item) => {
+				const isActive =
+					item.path === "/"
+						? location.pathname === "/"
+						: location.pathname.startsWith(item.path);
+
+				return (
+					<Button
+						key={item.path}
+						render={<NavLink to={item.path} end={item.path === "/"} />}
+						nativeButton={false}
+						variant={isActive ? "secondary" : "ghost"}
+						className="h-auto flex-col gap-1 py-2 text-xs"
+					>
+						<item.icon />
+						{item.label}
+					</Button>
+				);
+			})}
+		</nav>
+	);
+}
+
+function AppSidebar() {
+	const wallet = useWallet();
+	const primaryTotal = wallet.totals[0] ?? ZERO_TOTAL;
+
+	return (
+		<Sidebar variant="inset" collapsible="icon">
+			<SidebarHeader className="p-3">
 				<SidebarMenu>
 					<SidebarMenuItem>
 						<SidebarMenuButton
@@ -986,70 +1158,24 @@ function AppSidebar() {
 							size="lg"
 							tooltip="Overview"
 						>
-							<div className="flex size-8 shrink-0 items-center justify-center border bg-sidebar-primary text-sidebar-primary-foreground">
-								<Wallet />
+							<div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground shadow-sm">
+								<Sparkles />
 							</div>
 							<div className="grid min-w-0 flex-1 text-left leading-tight group-data-[collapsible=icon]:hidden">
-								<span className="truncate text-sm font-semibold tracking-wider uppercase">
+								<span className="truncate text-sm font-semibold tracking-tight">
 									Malibu
 								</span>
 								<span className="truncate text-xs text-sidebar-foreground/70">
-									Cashu wallet
+									Private digital cash
 								</span>
 							</div>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
 				</SidebarMenu>
 			</SidebarHeader>
-			<SidebarContent>
-				<SidebarGroup className="group-data-[collapsible=icon]:hidden">
-					<SidebarGroupLabel>Balance</SidebarGroupLabel>
-					<SidebarGroupContent className="flex flex-col gap-4 px-2">
-						{wallet.totals.map((total) => (
-							<div
-								key={total.unit}
-								className="border-l-2 border-sidebar-primary/50 pl-3"
-							>
-								<div className="flex min-w-0 items-baseline gap-2">
-									<span className="truncate text-3xl font-semibold tabular-nums">
-										{formatAmount(total.spendable)}
-									</span>
-									<span className="text-xs font-semibold uppercase text-sidebar-primary">
-										{total.unit}
-									</span>
-								</div>
-								<div className="mt-2 flex flex-wrap gap-3 text-xs text-sidebar-foreground/70">
-									<span>total {formatAmount(total.total)}</span>
-									<span>reserved {formatAmount(total.reserved)}</span>
-								</div>
-							</div>
-						))}
-					</SidebarGroupContent>
-				</SidebarGroup>
-				<SidebarGroup className="group-data-[collapsible=icon]:hidden">
-					<SidebarGroupLabel>Lightning address</SidebarGroupLabel>
-					<SidebarGroupContent className="px-2">
-						<div className="grid gap-2 border-l-2 border-sidebar-primary/50 pl-3">
-							<div className="flex min-w-0 items-center gap-2">
-								<AtSign className="size-4 shrink-0 text-sidebar-primary" />
-								<span className="truncate text-sm font-semibold">
-									{wallet.npcState?.lightningAddress ?? "Loading"}
-								</span>
-							</div>
-							<div className="flex items-center justify-between gap-2">
-								<span className="truncate text-xs text-sidebar-foreground/70">
-									{getNpcHost(wallet.npcState)}
-								</span>
-								{wallet.npcState?.lightningAddress ? (
-									<CopyButton value={wallet.npcState.lightningAddress} compact />
-								) : null}
-							</div>
-						</div>
-					</SidebarGroupContent>
-				</SidebarGroup>
-				<SidebarSeparator />
+			<SidebarContent className="px-1">
 				<SidebarGroup>
-					<SidebarGroupLabel>Wallet</SidebarGroupLabel>
+					<SidebarGroupLabel>Workspace</SidebarGroupLabel>
 					<SidebarGroupContent>
 						<SidebarMenu>
 							{PRIMARY_ROUTES.map((route) => (
@@ -1058,7 +1184,70 @@ function AppSidebar() {
 						</SidebarMenu>
 					</SidebarGroupContent>
 				</SidebarGroup>
+				<SidebarSeparator />
+				<SidebarGroup className="group-data-[collapsible=icon]:hidden">
+					<SidebarGroupLabel>Available balance</SidebarGroupLabel>
+					<SidebarGroupContent className="px-2">
+						<div className="rounded-xl bg-sidebar-accent p-4">
+							<div className="flex items-baseline gap-2">
+								<span className="truncate text-3xl font-semibold tracking-tight tabular-nums">
+									{formatAmount(primaryTotal.spendable)}
+								</span>
+								<span className="text-xs font-semibold text-sidebar-primary uppercase">
+									{primaryTotal.unit}
+								</span>
+							</div>
+							<p className="mt-1 text-xs text-sidebar-foreground/65">
+								{formatAmount(primaryTotal.reserved)} reserved
+							</p>
+							<div className="mt-4 grid grid-cols-2 gap-2">
+								<Button
+									render={<NavLink to="/send" />}
+									nativeButton={false}
+									size="sm"
+								>
+									<ArrowUpRight data-icon="inline-start" />
+									Send
+								</Button>
+								<Button
+									render={<NavLink to="/receive" />}
+									nativeButton={false}
+									variant="outline"
+									size="sm"
+								>
+									<ArrowDownLeft data-icon="inline-start" />
+									Receive
+								</Button>
+							</div>
+						</div>
+					</SidebarGroupContent>
+				</SidebarGroup>
 			</SidebarContent>
+			<SidebarFooter className="p-3">
+				<SidebarMenu>
+					<SidebarMenuItem>
+						<SidebarMenuButton
+							render={<NavLink to="/settings" />}
+							size="lg"
+							tooltip="Wallet settings"
+						>
+							<Avatar size="sm">
+								<AvatarFallback>M</AvatarFallback>
+								<AvatarBadge />
+							</Avatar>
+							<div className="grid min-w-0 flex-1 text-left leading-tight group-data-[collapsible=icon]:hidden">
+								<span className="truncate text-sm font-medium">
+									{wallet.npcState?.lightningAddress ?? "Malibu wallet"}
+								</span>
+								<span className="truncate text-xs text-sidebar-foreground/65">
+									{wallet.trustedMints.length} trusted mints
+								</span>
+							</div>
+							<MoreHorizontal className="group-data-[collapsible=icon]:hidden" />
+						</SidebarMenuButton>
+					</SidebarMenuItem>
+				</SidebarMenu>
+			</SidebarFooter>
 			<SidebarRail />
 		</Sidebar>
 	);
@@ -1131,30 +1320,17 @@ function OverviewScreen() {
 					};
 
 	return (
-		<div className="grid gap-5">
-			<div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(22rem,0.85fr)]">
-				<section className="min-w-0 border bg-card p-5 shadow-sm ring-1 ring-foreground/5 sm:p-6">
-					<div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-						<div className="min-w-0">
-							<div className="flex items-center gap-2 text-muted-foreground">
-								<Home className="size-4" />
-								<span className="text-xs font-semibold tracking-widest uppercase">
-									Home
-								</span>
-							</div>
-							<h2 className="mt-3 text-2xl font-semibold tracking-wider uppercase sm:text-3xl">
-								Wallet command
-							</h2>
-							<p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-								One place for current liquidity, work that needs attention, and
-								the latest completed movement.
-							</p>
-						</div>
-						<div className="flex shrink-0 items-center gap-2">
+		<div className="flex flex-col gap-6">
+			<div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(21rem,0.65fr)]">
+				<Card className="min-w-0">
+					<CardHeader>
+						<CardTitle className="text-lg">Available balance</CardTitle>
+						<CardDescription>{walletState.detail}</CardDescription>
+						<CardAction className="flex items-center gap-2">
 							<Badge variant={walletState.tone}>{walletState.label}</Badge>
 							<Button
 								type="button"
-								variant="outline"
+								variant="ghost"
 								size="icon-sm"
 								aria-label="Refresh wallet"
 								disabled={wallet.busy !== null}
@@ -1164,23 +1340,21 @@ function OverviewScreen() {
 									className={cn(wallet.busy === "refresh" && "animate-spin")}
 								/>
 							</Button>
-						</div>
-					</div>
+						</CardAction>
+					</CardHeader>
 
-					<div className="mt-8 grid gap-5 lg:grid-cols-[minmax(0,1fr)_14rem]">
+					<CardContent>
+					<div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_14rem]">
 						<div className="min-w-0">
-							<div className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
-								Spendable
-							</div>
-							<div className="mt-3 flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-								<span className="max-w-full truncate text-5xl font-semibold tabular-nums sm:text-6xl">
+							<div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+								<span className="max-w-full truncate text-5xl font-semibold tracking-tight tabular-nums sm:text-7xl">
 									{formatAmount(primaryTotal.spendable)}
 								</span>
-								<span className="text-sm font-semibold tracking-widest text-primary uppercase">
+								<span className="text-sm font-semibold text-primary uppercase">
 									{primaryTotal.unit}
 								</span>
 							</div>
-							<div className="mt-5 grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">
+							<div className="mt-6 grid gap-4 text-sm text-muted-foreground sm:grid-cols-2">
 								<InlineMetric
 									label="Reserved"
 									value={`${formatAmount(primaryTotal.reserved)} ${
@@ -1195,12 +1369,13 @@ function OverviewScreen() {
 							{otherTotals.length ? (
 								<div className="mt-5 flex flex-wrap gap-2">
 									{otherTotals.map((total) => (
-										<span
+										<Badge
 											key={total.unit}
-											className="border bg-muted px-2.5 py-1 text-xs font-semibold tabular-nums"
+											variant="outline"
+											className="tabular-nums"
 										>
 											{formatAmount(total.spendable)} {total.unit}
-										</span>
+										</Badge>
 									))}
 								</div>
 							) : null}
@@ -1224,14 +1399,43 @@ function OverviewScreen() {
 							/>
 						</div>
 					</div>
-				</section>
+					</CardContent>
+					<CardFooter className="flex-wrap gap-2 bg-transparent">
+						<Button
+							render={<NavLink to="/send" />}
+							nativeButton={false}
+							size="lg"
+						>
+							<ArrowUpRight data-icon="inline-start" />
+							Send money
+						</Button>
+						<Button
+							render={<NavLink to="/receive" />}
+							nativeButton={false}
+							variant="secondary"
+							size="lg"
+						>
+							<ArrowDownLeft data-icon="inline-start" />
+							Receive
+						</Button>
+						<Button
+							render={<NavLink to="/activity" />}
+							nativeButton={false}
+							variant="ghost"
+							size="lg"
+						>
+							<Activity data-icon="inline-start" />
+							Activity
+						</Button>
+					</CardFooter>
+				</Card>
 
 				<div className="grid gap-5">
 					<LightningAddressCard />
 					<Card>
 						<CardHeader>
 							<CardTitle className="flex items-center gap-2">
-								<ShieldCheck className="size-5" />
+								<ShieldCheck />
 								Readiness
 							</CardTitle>
 							<CardDescription>{walletState.detail}</CardDescription>
@@ -1308,8 +1512,8 @@ function OverviewScreen() {
 
 			<section className="flex min-w-0 flex-col gap-3">
 				<div className="flex items-center justify-between gap-3">
-					<h3 className="flex items-center gap-2 text-sm font-semibold tracking-wider uppercase">
-						<History className="size-4" />
+					<h3 className="flex items-center gap-2 text-base font-medium">
+						<History />
 						Recent movement
 						<Badge variant="secondary">{wallet.history.length}</Badge>
 					</h3>
@@ -1333,52 +1537,65 @@ function MintsScreen() {
 	const wallet = useWallet();
 
 	return (
-		<div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,0.8fr)]">
-			<section className="flex min-w-0 flex-col gap-5">
-				<PageHeader
-					icon={Landmark}
-					title="Mints"
-					description="Trust, preview, restore, and review known mint servers."
-				/>
+		<div className="flex flex-col gap-6">
+			<PageHeader
+				icon={Landmark}
+				title="Mint network"
+				description="Control where your ecash lives and how liquidity is distributed across trusted mint servers."
+				action={
+					<Badge variant={wallet.trustedMints.length ? "secondary" : "destructive"}>
+						<ShieldCheck data-icon="inline-start" />
+						{wallet.trustedMints.length} trusted
+					</Badge>
+				}
+			/>
+			<div className="grid gap-6 xl:grid-cols-[minmax(20rem,0.7fr)_minmax(0,1.3fr)]">
 				<MintManagementCard />
-			</section>
-
-			<section className="flex min-w-0 flex-col gap-3">
-				<SectionTitle
-					icon={Activity}
-					title="Balances by mint"
-					count={wallet.snapshot?.balances.length ?? 0}
-				/>
-				<MintAllocationList
-					balances={wallet.snapshot?.balances ?? []}
-					mints={wallet.snapshot?.mints ?? []}
-				/>
-			</section>
+				<section className="flex min-w-0 flex-col gap-3">
+					<SectionTitle
+						icon={Activity}
+						title="Liquidity distribution"
+						count={wallet.snapshot?.balances.length ?? 0}
+					/>
+					<MintAllocationList
+						balances={wallet.snapshot?.balances ?? []}
+						mints={wallet.snapshot?.mints ?? []}
+					/>
+				</section>
+			</div>
 		</div>
 	);
 }
 
 function SendScreen() {
+	const wallet = useWallet();
+	const total = wallet.totals[0] ?? ZERO_TOTAL;
+
 	return (
-		<div className="grid gap-5">
+		<div className="flex flex-col gap-6">
 			<PageHeader
-				icon={Send}
-				title="Send"
-				description="Choose the outgoing rail first, then finish the matching wallet operation."
+				icon={ArrowUpRight}
+				title="Send money"
+				description="Create private ecash or pay a Lightning invoice from the same balance."
+				action={
+					<Badge variant="outline" className="tabular-nums">
+						{formatAmount(total.spendable)} {total.unit} available
+					</Badge>
+				}
 			/>
 			<Card>
 				<CardHeader>
-					<CardTitle>Send action</CardTitle>
+					<CardTitle>Choose a payment rail</CardTitle>
 					<CardDescription>
-						Send ecash directly or pay a Lightning invoice from wallet proofs.
+						Your wallet prepares every payment before proofs leave this device.
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
-					<Tabs defaultValue="ecash" className="gap-5">
-						<TabsList className="w-full sm:w-fit">
+					<Tabs defaultValue="ecash" className="gap-6">
+						<TabsList variant="line" className="w-full justify-start sm:w-fit">
 							<TabsTrigger value="ecash">
 								<Wallet data-icon="inline-start" />
-								Ecash
+								Cashu token
 							</TabsTrigger>
 							<TabsTrigger value="lightning">
 								<Zap data-icon="inline-start" />
@@ -1403,16 +1620,15 @@ function SendEcashPanel() {
 
 	return (
 		<div className="flex flex-col gap-5">
-			<div className="grid gap-2 border-l-2 border-primary/50 pl-3">
-				<h3 className="text-sm font-semibold tracking-wider uppercase">
-					Ecash token
-				</h3>
-				<p className="text-sm text-muted-foreground">
+			<Alert>
+				<LockKeyhole />
+				<AlertTitle>Private by default</AlertTitle>
+				<AlertDescription>
 					Reserve proofs and create a Cashu token for the recipient.
-				</p>
-			</div>
-			<form onSubmit={wallet.handlePrepareSend}>
-				<FieldGroup className="grid gap-4 lg:grid-cols-[1fr_10rem_7rem_1fr_auto]">
+				</AlertDescription>
+			</Alert>
+			<form className="flex flex-col gap-4" onSubmit={wallet.handlePrepareSend}>
+				<FieldGroup className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_10rem_7rem_minmax(0,0.8fr)]">
 					<Field label="Mint">
 						<MintPicker
 							value={wallet.sendMintUrl}
@@ -1439,13 +1655,15 @@ function SendEcashPanel() {
 							onChange={(event) => wallet.setSendMemo(event.target.value)}
 						/>
 					</Field>
-					<div className="flex items-end">
-						<Button type="submit" disabled={wallet.busy !== null} className="w-full">
-							<Send data-icon="inline-start" />
-							Prepare
-						</Button>
-					</div>
 				</FieldGroup>
+				<Button
+					type="submit"
+					disabled={wallet.busy !== null}
+					className="self-end"
+				>
+					Review transfer
+					<ArrowRight data-icon="inline-end" />
+				</Button>
 			</form>
 
 			<div className="grid gap-4 lg:grid-cols-2">
@@ -1489,14 +1707,13 @@ function SendLightningPanel() {
 
 	return (
 		<div className="flex flex-col gap-5">
-			<div className="grid gap-2 border-l-2 border-primary/50 pl-3">
-				<h3 className="text-sm font-semibold tracking-wider uppercase">
-					Lightning invoice
-				</h3>
-				<p className="text-sm text-muted-foreground">
+			<Alert>
+				<Zap />
+				<AlertTitle>Lightning payment</AlertTitle>
+				<AlertDescription>
 					Use wallet proofs to pay an external Lightning request.
-				</p>
-			</div>
+				</AlertDescription>
+			</Alert>
 			<form className="flex flex-col gap-4" onSubmit={wallet.handlePrepareMelt}>
 				<FieldGroup className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_8rem]">
 					<Field label="Mint">
@@ -1522,8 +1739,8 @@ function SendLightningPanel() {
 				</FieldGroup>
 				<div className="flex justify-end">
 					<Button type="submit" disabled={wallet.busy !== null}>
-						<Zap data-icon="inline-start" />
-						Prepare payment
+						Review payment
+						<ArrowRight data-icon="inline-end" />
 					</Button>
 				</div>
 			</form>
@@ -1578,25 +1795,25 @@ function SendLightningPanel() {
 
 function ReceiveScreen() {
 	return (
-		<div className="grid gap-5">
+		<div className="flex flex-col gap-6">
 			<PageHeader
-				icon={Check}
-				title="Receive"
-				description="Choose the incoming rail first, then finish the matching wallet operation."
+				icon={ArrowDownLeft}
+				title="Receive money"
+				description="Redeem a private Cashu token or create a Lightning invoice for incoming funds."
 			/>
 			<Card>
 				<CardHeader>
-					<CardTitle>Receive action</CardTitle>
+					<CardTitle>Choose how to receive</CardTitle>
 					<CardDescription>
-						Accept an ecash token or create a Lightning invoice for new proofs.
+						Incoming funds are verified before they join your spendable balance.
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
-					<Tabs defaultValue="ecash" className="gap-5">
-						<TabsList className="w-full sm:w-fit">
+					<Tabs defaultValue="ecash" className="gap-6">
+						<TabsList variant="line" className="w-full justify-start sm:w-fit">
 							<TabsTrigger value="ecash">
 								<Wallet data-icon="inline-start" />
-								Ecash
+								Cashu token
 							</TabsTrigger>
 							<TabsTrigger value="lightning">
 								<Download data-icon="inline-start" />
@@ -1621,16 +1838,15 @@ function ReceiveEcashPanel() {
 
 	return (
 		<div className="flex flex-col gap-5">
-			<div className="grid gap-2 border-l-2 border-primary/50 pl-3">
-				<h3 className="text-sm font-semibold tracking-wider uppercase">
-					Ecash token
-				</h3>
-				<p className="text-sm text-muted-foreground">
+			<Alert>
+				<ShieldCheck />
+				<AlertTitle>Verify before redeeming</AlertTitle>
+				<AlertDescription>
 					Inspect a Cashu token before accepting its proofs.
-				</p>
-			</div>
-			<form onSubmit={wallet.handlePrepareReceive}>
-				<FieldGroup className="grid gap-4 lg:grid-cols-[1fr_auto]">
+				</AlertDescription>
+			</Alert>
+			<form className="flex flex-col gap-4" onSubmit={wallet.handlePrepareReceive}>
+				<FieldGroup>
 					<Field label="Token">
 						<Textarea
 							value={wallet.receiveToken}
@@ -1638,13 +1854,15 @@ function ReceiveEcashPanel() {
 							className="min-h-40"
 						/>
 					</Field>
-					<div className="flex items-end">
-						<Button type="submit" disabled={wallet.busy !== null} className="w-full">
-							<Check data-icon="inline-start" />
-							Prepare
-						</Button>
-					</div>
 				</FieldGroup>
+				<Button
+					type="submit"
+					disabled={wallet.busy !== null}
+					className="self-end"
+				>
+					Review token
+					<ArrowRight data-icon="inline-end" />
+				</Button>
 			</form>
 
 			{wallet.preparedReceive ? (
@@ -1683,16 +1901,15 @@ function ReceiveLightningPanel() {
 
 	return (
 		<div className="flex flex-col gap-5">
-			<div className="grid gap-2 border-l-2 border-primary/50 pl-3">
-				<h3 className="text-sm font-semibold tracking-wider uppercase">
-					Lightning invoice
-				</h3>
-				<p className="text-sm text-muted-foreground">
+			<Alert>
+				<Zap />
+				<AlertTitle>Invoice your way</AlertTitle>
+				<AlertDescription>
 					Create a payment request and settle it into ecash proofs.
-				</p>
-			</div>
-			<form onSubmit={wallet.handleCreateMintQuote}>
-				<FieldGroup className="grid gap-4 lg:grid-cols-[1fr_12rem_8rem_auto]">
+				</AlertDescription>
+			</Alert>
+			<form className="flex flex-col gap-4" onSubmit={wallet.handleCreateMintQuote}>
+				<FieldGroup className="grid gap-4 lg:grid-cols-[1fr_12rem_8rem]">
 					<Field label="Mint">
 						<MintPicker
 							value={wallet.quoteMintUrl}
@@ -1713,13 +1930,15 @@ function ReceiveLightningPanel() {
 							onChange={(event) => wallet.setQuoteUnit(event.target.value)}
 						/>
 					</Field>
-					<div className="flex items-end">
-						<Button type="submit" disabled={wallet.busy !== null} className="w-full">
-							<Download data-icon="inline-start" />
-							Create invoice
-						</Button>
-					</div>
 				</FieldGroup>
+				<Button
+					type="submit"
+					disabled={wallet.busy !== null}
+					className="self-end"
+				>
+					<Download data-icon="inline-start" />
+					Create invoice
+				</Button>
 			</form>
 
 			<div className="grid gap-4 lg:grid-cols-2">
@@ -1759,13 +1978,21 @@ function ActivityScreen() {
 	const wallet = useWallet();
 
 	return (
-		<div className="grid gap-5">
+		<div className="flex flex-col gap-6">
 			<PageHeader
 				icon={History}
-				title="Activity"
-				description="Active operations and settled wallet history."
+				title="Wallet activity"
+				description="Track transfers that still need attention and review completed movement across every mint."
+				action={
+					<Badge variant={wallet.operations.length ? "default" : "secondary"}>
+						<Activity data-icon="inline-start" />
+						{wallet.operations.length
+							? `${wallet.operations.length} active`
+							: "All clear"}
+					</Badge>
+				}
 			/>
-			<div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+			<div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
 				<section className="flex min-w-0 flex-col gap-3">
 					<SectionTitle
 						icon={Activity}
@@ -1783,7 +2010,11 @@ function ActivityScreen() {
 				</section>
 
 				<section className="flex min-w-0 flex-col gap-3">
-					<SectionTitle icon={History} title="History" count={wallet.history.length} />
+					<SectionTitle
+						icon={History}
+						title="Completed"
+						count={wallet.history.length}
+					/>
 					<HistoryList history={wallet.history} />
 				</section>
 			</div>
@@ -1795,29 +2026,89 @@ function SettingsScreen() {
 	const wallet = useWallet();
 
 	return (
-		<div className="grid gap-5">
+		<div className="flex flex-col gap-6">
 			<PageHeader
 				icon={Settings}
-				title="Settings"
-				description="Local wallet storage and application state."
+				title="Wallet settings"
+				description="Manage your public Lightning identity, appearance, and local wallet storage."
 			/>
-			<div className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+			<div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)]">
 				<NpcUsernameCard />
-				<Card size="sm">
-					<CardHeader>
-						<CardTitle className="flex items-center gap-2 text-sm">
-							<Database className="size-4" />
-							Storage
-						</CardTitle>
-					</CardHeader>
-					<CardContent>
-						<p className="break-all text-xs leading-relaxed text-muted-foreground">
-							{wallet.snapshot?.dataDir ?? "Waiting for wallet bridge"}
-						</p>
-					</CardContent>
-				</Card>
+				<div className="flex flex-col gap-6">
+					<AppearanceCard />
+					<Card size="sm">
+						<CardHeader>
+							<CardTitle className="flex items-center gap-2">
+								<Database />
+								Local storage
+							</CardTitle>
+							<CardDescription>
+								Wallet proofs and metadata stay on this device.
+							</CardDescription>
+						</CardHeader>
+						<CardContent>
+							<p className="break-all font-mono text-xs leading-relaxed text-muted-foreground">
+								{wallet.snapshot?.dataDir ?? "Waiting for wallet bridge"}
+							</p>
+						</CardContent>
+						{wallet.snapshot?.dataDir ? (
+							<CardFooter>
+								<CopyButton value={wallet.snapshot.dataDir} compact />
+							</CardFooter>
+						) : null}
+					</Card>
+				</div>
 			</div>
 		</div>
+	);
+}
+
+function AppearanceCard() {
+	const { theme, setTheme } = useTheme();
+	const themes = [
+		{ label: "Light", value: "light" },
+		{ label: "Dark", value: "dark" },
+		{ label: "Follow system", value: "system" },
+	];
+
+	return (
+		<Card size="sm">
+			<CardHeader>
+				<CardTitle className="flex items-center gap-2">
+					<Sun />
+					Appearance
+				</CardTitle>
+				<CardDescription>Choose how Malibu looks on this device.</CardDescription>
+			</CardHeader>
+			<CardContent>
+				<FieldGroup>
+					<Field label="Theme">
+						{(id) => (
+							<Select
+								items={themes}
+								value={theme}
+								onValueChange={(value) =>
+									setTheme(value as "light" | "dark" | "system")
+								}
+							>
+								<SelectTrigger id={id} className="w-full">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectGroup>
+										{themes.map((item) => (
+											<SelectItem key={item.value} value={item.value}>
+												{item.label}
+											</SelectItem>
+										))}
+									</SelectGroup>
+								</SelectContent>
+							</Select>
+						)}
+					</Field>
+				</FieldGroup>
+			</CardContent>
+		</Card>
 	);
 }
 
@@ -1834,7 +2125,7 @@ function LightningAddressCard() {
 		<Card>
 			<CardHeader>
 				<CardTitle className="flex items-center gap-2">
-					<AtSign className="size-5" />
+					<AtSign />
 					Lightning address
 				</CardTitle>
 				<CardDescription>{getNpcHost(wallet.npcState)}</CardDescription>
@@ -1845,12 +2136,17 @@ function LightningAddressCard() {
 				</CardAction>
 			</CardHeader>
 			<CardContent className="flex flex-col gap-4">
-				<div className="min-w-0 border-l-2 border-primary/60 pl-3">
-					<div className="truncate text-xl font-semibold">{addressLabel}</div>
-					<div className="mt-1 truncate text-xs text-muted-foreground">
-						{wallet.npcState?.publicKey ?? "Waiting for NPC identity"}
-					</div>
-				</div>
+				<Item variant="muted">
+					<ItemMedia variant="icon">
+						<AtSign />
+					</ItemMedia>
+					<ItemContent>
+						<ItemTitle className="text-base">{addressLabel}</ItemTitle>
+						<ItemDescription className="truncate font-mono text-xs">
+							{wallet.npcState?.publicKey ?? "Waiting for NPC identity"}
+						</ItemDescription>
+					</ItemContent>
+				</Item>
 				{wallet.npcState?.error ? (
 					<Alert variant="destructive">
 						<AlertTitle>NPC unavailable</AlertTitle>
@@ -1863,8 +2159,9 @@ function LightningAddressCard() {
 						<AlertDescription>{mintStatusDetail}</AlertDescription>
 					</Alert>
 				) : null}
-				<div className="flex flex-wrap gap-2">
-					{address ? <CopyButton value={address} /> : null}
+			</CardContent>
+			<CardFooter className="flex-wrap gap-2">
+				{address ? <CopyButton value={address} /> : null}
 					<Button
 						type="button"
 						variant="outline"
@@ -1887,8 +2184,7 @@ function LightningAddressCard() {
 						<UserRound data-icon="inline-start" />
 						{usernameClaimed ? "Manage" : "Claim username"}
 					</Button>
-				</div>
-			</CardContent>
+			</CardFooter>
 		</Card>
 	);
 }
@@ -1902,11 +2198,11 @@ function NpcUsernameCard() {
 	const canSyncNpc = wallet.npcState?.canSync ?? false;
 
 	return (
-		<Card size="sm">
+		<Card size="sm" className="self-start">
 			<CardHeader>
-				<CardTitle className="flex items-center gap-2 text-sm">
-					<UserRound className="size-4" />
-					Lightning username
+				<CardTitle className="flex items-center gap-2">
+					<UserRound />
+					Public Lightning identity
 				</CardTitle>
 				<CardDescription>
 					{wallet.npcState?.lightningAddress ?? getNpcHost(wallet.npcState)}
@@ -1921,13 +2217,21 @@ function NpcUsernameCard() {
 				<form className="flex flex-col gap-3" onSubmit={wallet.handlePreviewNpcUsername}>
 					<FieldGroup className="gap-3">
 						<Field label="Username">
-							<Input
-								value={wallet.npcUsername}
-								onChange={(event) => wallet.setNpcUsername(event.target.value)}
-								placeholder="alice"
-								autoCapitalize="none"
-								autoCorrect="off"
-							/>
+							{(id) => (
+								<InputGroup>
+									<InputGroupAddon>
+										<InputGroupText>@</InputGroupText>
+									</InputGroupAddon>
+									<InputGroupInput
+										id={id}
+										value={wallet.npcUsername}
+										onChange={(event) => wallet.setNpcUsername(event.target.value)}
+										placeholder="alice"
+										autoCapitalize="none"
+										autoCorrect="off"
+									/>
+								</InputGroup>
+							)}
 						</Field>
 					</FieldGroup>
 					<div className="flex flex-wrap gap-2">
@@ -1959,26 +2263,24 @@ function NpcUsernameCard() {
 				</form>
 
 				{paymentRequest ? (
-					<div className="grid gap-3 border p-3">
-						<div className="flex items-center justify-between gap-3">
-							<div className="min-w-0">
-								<div className="truncate text-sm font-semibold">
-									Payment required
-								</div>
-								<div className="truncate text-xs text-muted-foreground">
-									{formatPaymentRequestAmount(paymentRequest)}
-								</div>
-							</div>
+					<div className="flex flex-col gap-3">
+						<Alert>
+							<Zap />
+							<AlertTitle>Payment required</AlertTitle>
+							<AlertDescription>
+								{formatPaymentRequestAmount(paymentRequest)}
+							</AlertDescription>
 							<Button
 								type="button"
 								size="sm"
+								className="mt-2 w-fit"
 								disabled={wallet.busy !== null}
 								onClick={wallet.handleBuyNpcUsername}
 							>
 								<Zap data-icon="inline-start" />
 								Pay
 							</Button>
-						</div>
+						</Alert>
 						{paymentRequest.encoded ? (
 							<OutputBlock title="Payment request" value={paymentRequest.encoded} />
 						) : null}
@@ -2002,10 +2304,13 @@ function MintManagementCard() {
 	return (
 		<Card size="sm">
 			<CardHeader>
-				<CardTitle className="flex items-center gap-2 text-sm">
-					<ShieldCheck className="size-4" />
-					Mints
+				<CardTitle className="flex items-center gap-2">
+					<ShieldCheck />
+					Mint access
 				</CardTitle>
+				<CardDescription>
+					Add a mint only when you trust the operator that backs its ecash.
+				</CardDescription>
 				<CardAction>
 					<Badge variant={wallet.trustedMints.length ? "default" : "secondary"}>
 						{wallet.trustedMints.length} trusted
@@ -2016,11 +2321,19 @@ function MintManagementCard() {
 				<form className="flex flex-col gap-3" onSubmit={wallet.handleAddMint}>
 					<FieldGroup className="gap-3">
 						<Field label="Mint URL">
-							<Input
-								value={wallet.mintUrl}
-								onChange={(event) => wallet.setMintUrl(event.target.value)}
-								placeholder="https://mint.example"
-							/>
+							{(id) => (
+								<InputGroup>
+									<InputGroupAddon>
+										<Network />
+									</InputGroupAddon>
+									<InputGroupInput
+										id={id}
+										value={wallet.mintUrl}
+										onChange={(event) => wallet.setMintUrl(event.target.value)}
+										placeholder="https://mint.example"
+									/>
+								</InputGroup>
+							)}
 						</Field>
 					</FieldGroup>
 					<div className="grid grid-cols-2 gap-2">
@@ -2052,28 +2365,30 @@ function MintManagementCard() {
 					</Button>
 				</form>
 
-				<div className="flex flex-col gap-3">
+				<ItemGroup>
 					{wallet.snapshot?.mints.length ? (
 						wallet.snapshot.mints.map((mint) => (
-							<div
-								key={mint.mintUrl}
-								className="grid gap-1 border-l-2 border-primary/70 pl-3"
-							>
-								<div className="flex min-w-0 items-center justify-between gap-2">
-									<span className="truncate text-sm font-medium">{mint.name}</span>
+							<Item key={mint.mintUrl} variant="muted" size="sm">
+								<ItemMedia variant="icon">
+									<Landmark />
+								</ItemMedia>
+								<ItemContent>
+									<ItemTitle>{mint.name}</ItemTitle>
+									<ItemDescription className="truncate">
+										{mint.mintUrl}
+									</ItemDescription>
+								</ItemContent>
+								<ItemActions>
 									<Badge variant={mint.trusted ? "default" : "secondary"}>
-										{mint.trusted ? "trusted" : "cached"}
+										{mint.trusted ? "Trusted" : "Cached"}
 									</Badge>
-								</div>
-								<span className="truncate text-xs text-muted-foreground">
-									{mint.mintUrl}
-								</span>
-							</div>
+								</ItemActions>
+							</Item>
 						))
 					) : (
 						<EmptyState label="No mints" />
 					)}
-				</div>
+				</ItemGroup>
 			</CardContent>
 		</Card>
 	);
@@ -2091,18 +2406,16 @@ function PageHeader({
 	action?: React.ReactNode;
 }) {
 	return (
-		<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+		<div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
 			<div className="min-w-0">
-				<div className="flex items-center gap-2 text-muted-foreground">
-					<Icon className="size-4" />
-					<span className="text-xs font-semibold tracking-widest uppercase">
-						Wallet
-					</span>
-				</div>
-				<h2 className="mt-2 text-2xl font-semibold tracking-wider uppercase">
+				<Badge variant="outline">
+					<Icon data-icon="inline-start" />
+					Private wallet
+				</Badge>
+				<h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
 					{title}
 				</h2>
-				<p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+				<p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
 					{description}
 				</p>
 			</div>
@@ -2113,11 +2426,11 @@ function PageHeader({
 
 function InlineMetric({ label, value }: { label: string; value: string }) {
 	return (
-		<div className="min-w-0 border-l-2 border-primary/40 pl-3">
-			<div className="text-[0.625rem] font-semibold tracking-widest uppercase">
+		<div className="min-w-0">
+			<div className="text-xs font-medium text-muted-foreground">
 				{label}
 			</div>
-			<div className="mt-1 truncate font-semibold text-foreground tabular-nums">
+			<div className="mt-1 truncate font-medium text-foreground tabular-nums">
 				{value}
 			</div>
 		</div>
@@ -2134,15 +2447,15 @@ function HomeStat({
 	detail: string;
 }) {
 	return (
-		<div className="border bg-background/70 p-3">
-			<div className="text-[0.625rem] font-semibold tracking-widest text-muted-foreground uppercase">
-				{label}
-			</div>
-			<div className="mt-2 flex items-baseline justify-between gap-3">
-				<span className="text-2xl font-semibold tabular-nums">{value}</span>
-				<span className="truncate text-xs text-muted-foreground">{detail}</span>
-			</div>
-		</div>
+		<Item variant="muted" size="sm">
+			<ItemContent>
+				<ItemDescription>{label}</ItemDescription>
+				<ItemTitle className="text-xl tabular-nums">{value}</ItemTitle>
+			</ItemContent>
+			<ItemActions>
+				<span className="text-xs text-muted-foreground">{detail}</span>
+			</ItemActions>
+		</Item>
 	);
 }
 
@@ -2158,24 +2471,26 @@ function ReadinessRow({
 	state: "ok" | "warn" | "muted";
 }) {
 	return (
-		<div className="flex items-center justify-between gap-3 border-b pb-3 last:border-b-0 last:pb-0">
-			<div className="flex min-w-0 items-center gap-3">
-				<div
-					className={cn(
-						"flex size-9 shrink-0 items-center justify-center border",
-						state === "ok" && "border-primary/30 bg-primary/10 text-primary",
-						state === "warn" && "border-destructive/30 bg-destructive/10 text-destructive",
-						state === "muted" && "bg-muted text-muted-foreground",
-					)}
-				>
-					<Icon className="size-4" />
-				</div>
-				<span className="truncate text-sm font-medium">{label}</span>
-			</div>
-			<span className="shrink-0 text-right text-xs font-semibold tracking-wider uppercase text-muted-foreground">
-				{value}
-			</span>
-		</div>
+		<Item size="sm">
+			<ItemMedia
+				variant="icon"
+				className={cn(
+					state === "ok" && "text-primary",
+					state === "warn" && "text-destructive",
+					state === "muted" && "text-muted-foreground",
+				)}
+			>
+				<Icon />
+			</ItemMedia>
+			<ItemContent>
+				<ItemTitle>{label}</ItemTitle>
+			</ItemContent>
+			<ItemActions>
+				<Badge variant={state === "warn" ? "destructive" : "secondary"}>
+					{value}
+				</Badge>
+			</ItemActions>
+		</Item>
 	);
 }
 
@@ -2200,52 +2515,48 @@ function MintAllocationList({
 	);
 
 	return (
-		<Card>
-			<CardContent className="grid gap-1">
-				{balances.map((balance) => {
-					const mint = mints.find((entry) => entry.mintUrl === balance.mintUrl);
-					const percent = getBalancePercent(
-						balance.spendable,
-						String(spendableByUnit.get(balance.unit) ?? 0n),
-					);
+		<ItemGroup>
+			{balances.map((balance) => {
+				const mint = mints.find((entry) => entry.mintUrl === balance.mintUrl);
+				const percent = getBalancePercent(
+					balance.spendable,
+					String(spendableByUnit.get(balance.unit) ?? 0n),
+				);
 
-					return (
-						<div
-							key={`${balance.mintUrl}:${balance.unit}`}
-							className="grid gap-3 border-b py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_12rem] sm:items-center"
-						>
-							<div className="min-w-0">
-								<div className="flex min-w-0 flex-wrap items-center gap-2">
-									<span className="truncate text-sm font-semibold">
-										{mint?.name ?? "Unknown mint"}
-									</span>
-									<Badge variant={mint?.trusted ? "default" : "secondary"}>
-										{mint?.trusted ? "trusted" : "cached"}
-									</Badge>
-								</div>
-								<p className="mt-1 truncate text-xs text-muted-foreground">
-									{balance.mintUrl}
-								</p>
-							</div>
-							<div className="min-w-0">
+				return (
+					<Item key={`${balance.mintUrl}:${balance.unit}`} variant="outline">
+						<ItemMedia variant="icon">
+							<Landmark />
+						</ItemMedia>
+						<ItemContent>
+							<ItemTitle>
+								{mint?.name ?? "Unknown mint"}
+								<Badge variant={mint?.trusted ? "secondary" : "outline"}>
+									{mint?.trusted ? "Trusted" : "Cached"}
+								</Badge>
+							</ItemTitle>
+							<ItemDescription className="truncate">
+								{balance.mintUrl}
+							</ItemDescription>
+						</ItemContent>
+						<ItemActions className="basis-full sm:basis-auto sm:min-w-48">
+							<div className="w-full min-w-0">
 								<div className="flex items-baseline justify-between gap-3">
-									<span className="truncate text-lg font-semibold tabular-nums">
+									<span className="truncate font-semibold tabular-nums">
 										{formatAmount(balance.spendable)} {balance.unit}
 									</span>
-									<span className="shrink-0 text-xs text-muted-foreground">
-										{percent}%
-									</span>
+									<span className="text-xs text-muted-foreground">{percent}%</span>
 								</div>
 								<Progress value={percent} className="mt-2" />
-								<div className="mt-1 text-xs text-muted-foreground">
+								<p className="mt-1 text-xs text-muted-foreground">
 									{formatAmount(balance.reserved)} reserved
-								</div>
+								</p>
 							</div>
-						</div>
-					);
-				})}
-			</CardContent>
-		</Card>
+						</ItemActions>
+					</Item>
+				);
+			})}
+		</ItemGroup>
 	);
 }
 
@@ -2259,9 +2570,9 @@ function SectionTitle({
 	count: number;
 }) {
 	return (
-		<div className="flex items-center justify-between">
-			<h3 className="flex items-center gap-2 text-sm font-semibold tracking-wider uppercase">
-				<Icon className="size-4" />
+		<div className="flex items-center justify-between gap-3">
+			<h3 className="flex items-center gap-2 text-base font-medium">
+				<Icon />
 				{title}
 			</h3>
 			<Badge variant="secondary">{count}</Badge>
@@ -2274,14 +2585,16 @@ function Field({
 	children,
 }: {
 	label: string;
-	children: React.ReactNode;
+	children: React.ReactNode | ((id: string) => React.ReactNode);
 }) {
 	const id = React.useId();
 
 	return (
 		<FieldRoot className="min-w-0">
 			<FieldLabel htmlFor={id}>{label}</FieldLabel>
-			{React.isValidElement(children)
+			{typeof children === "function"
+				? children(id)
+				: React.isValidElement(children)
 				? React.cloneElement(children, { id } as React.HTMLAttributes<HTMLElement>)
 				: children}
 		</FieldRoot>
@@ -2349,41 +2662,34 @@ function OperationPreview({
 	children: React.ReactNode;
 }) {
 	return (
-		<div className="grid gap-3 border p-4">
-			<div className="flex min-w-0 items-center justify-between gap-3">
-				<div className="min-w-0">
-					<div className="flex items-center gap-2">
-						<Badge>{getOperationTypeLabel(operation.type)}</Badge>
-						<span className="truncate text-sm font-semibold">
-							{operation.state}
-						</span>
-					</div>
-					<p className="mt-1 truncate text-xs text-muted-foreground">
-						{operation.id}
-					</p>
-				</div>
-				<div className="text-right text-sm font-semibold tabular-nums">
-					{operation.amount ? formatAmount(operation.amount) : "0"}{" "}
-					{operation.unit}
-				</div>
-			</div>
-			<div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+		<Card size="sm">
+			<CardHeader>
+				<CardTitle className="flex items-center gap-2">
+					{getOperationTypeLabel(operation.type)}
+					<Badge variant="secondary">{operation.state}</Badge>
+				</CardTitle>
+				<CardDescription className="truncate">{operation.id}</CardDescription>
+				<CardAction className="font-semibold tabular-nums">
+					{operation.amount ? formatAmount(operation.amount) : "0"} {operation.unit}
+				</CardAction>
+			</CardHeader>
+			<CardContent className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
 				<Detail label="fee" value={operation.fee ?? "0"} />
 				<Detail label="input" value={operation.inputAmount ?? "0"} />
 				<Detail label="swap" value={operation.needsSwap ? "yes" : "no"} />
-			</div>
-			{children}
-		</div>
+			</CardContent>
+			<CardFooter className="gap-2">{children}</CardFooter>
+		</Card>
 	);
 }
 
 function Detail({ label, value }: { label: string; value: string }) {
 	return (
-		<div className="min-w-0 border-l pl-2">
-			<div className="text-[0.625rem] font-semibold tracking-widest uppercase">
+		<div className="min-w-0">
+			<div className="text-xs text-muted-foreground">
 				{label}
 			</div>
-			<div className="truncate text-foreground">{value}</div>
+			<div className="mt-1 truncate font-medium text-foreground">{value}</div>
 		</div>
 	);
 }
@@ -2398,18 +2704,24 @@ function OutputBlock({
 	meta?: string;
 }) {
 	return (
-		<div className="grid gap-3 border p-4">
-			<div className="flex items-center justify-between gap-3">
-				<div>
-					<div className="text-sm font-semibold tracking-wider uppercase">
-						{title}
-					</div>
-					{meta ? <div className="text-xs text-muted-foreground">{meta}</div> : null}
-				</div>
-				<CopyButton value={value} />
-			</div>
-			<Textarea value={value} readOnly className="min-h-28 font-mono text-xs" />
-		</div>
+		<Card size="sm">
+			<CardHeader>
+				<CardTitle>{title}</CardTitle>
+				{meta ? <CardDescription>{meta}</CardDescription> : null}
+				<CardAction>
+					<CopyButton value={value} />
+				</CardAction>
+			</CardHeader>
+			<CardContent>
+				<InputGroup>
+					<InputGroupTextarea
+						value={value}
+						readOnly
+						className="min-h-28 font-mono text-xs"
+					/>
+				</InputGroup>
+			</CardContent>
+		</Card>
 	);
 }
 
@@ -2433,24 +2745,26 @@ function OperationList({
 	}
 
 	return (
-		<div className="grid max-h-[34rem] gap-3 overflow-y-auto pr-1">
+		<ScrollArea className="max-h-[34rem]">
+			<ItemGroup className="pr-3">
 			{operations.map((operation) => (
-				<Card key={`${operation.type}:${operation.id}`} size="sm">
-					<CardContent>
-						<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-							<div className="min-w-0">
-								<div className="flex flex-wrap items-center gap-2">
-									<Badge>{getOperationTypeLabel(operation.type)}</Badge>
-									<span className="text-sm font-medium">{operation.state}</span>
-									<span className="text-xs text-muted-foreground">
-										{formatAmount(operation.amount ?? "0")} {operation.unit}
-									</span>
-								</div>
-								<p className="mt-1 truncate text-xs text-muted-foreground">
-									{operation.mintUrl}
-								</p>
-							</div>
-							<div className="flex shrink-0 flex-wrap gap-2">
+				<Item key={`${operation.type}:${operation.id}`} variant="outline" size="sm">
+					<ItemMedia variant="icon">
+						<Activity />
+					</ItemMedia>
+					<ItemContent>
+						<ItemTitle>
+							{getOperationTypeLabel(operation.type)}
+							<Badge variant="secondary">{operation.state}</Badge>
+						</ItemTitle>
+						<ItemDescription className="truncate">{operation.mintUrl}</ItemDescription>
+					</ItemContent>
+					<ItemContent className="flex-none text-right">
+						<ItemTitle className="tabular-nums">
+							{formatAmount(operation.amount ?? "0")} {operation.unit}
+						</ItemTitle>
+					</ItemContent>
+					<ItemActions className="basis-full justify-end sm:basis-auto">
 								{operation.token ? <CopyButton value={operation.token} compact /> : null}
 								{operation.state === "prepared" ||
 								operation.state === "pending" ||
@@ -2504,15 +2818,14 @@ function OperationList({
 										onClick={() => onCancelMelt(operation.id)}
 									>
 										<X data-icon="inline-start" />
-										Cancel
-									</Button>
-								) : null}
-							</div>
-						</div>
-					</CardContent>
-				</Card>
+									Cancel
+								</Button>
+							) : null}
+					</ItemActions>
+				</Item>
 			))}
-		</div>
+			</ItemGroup>
+		</ScrollArea>
 	);
 }
 
@@ -2522,31 +2835,35 @@ function HistoryList({ history }: { history: WalletHistoryDto[] }) {
 	}
 
 	return (
-		<div className="grid max-h-[34rem] gap-3 overflow-y-auto pr-1">
+		<ScrollArea className="max-h-[34rem]">
+			<ItemGroup className="pr-3">
 			{history.map((entry) => (
-				<Card key={entry.id} size="sm">
-					<CardContent className="flex items-center justify-between gap-3">
-						<div className="min-w-0">
-							<div className="flex items-center gap-2">
-								<Badge>{getOperationTypeLabel(entry.type)}</Badge>
-								<span className="truncate text-sm font-medium">{entry.state}</span>
-							</div>
-							<p className="mt-1 truncate text-xs text-muted-foreground">
-								{entry.mintUrl}
-							</p>
-						</div>
-						<div className="shrink-0 text-right">
-							<div className="text-sm font-semibold tabular-nums">
-								{formatAmount(entry.amount)} {entry.unit}
-							</div>
-							<div className="text-xs text-muted-foreground">
-								{formatDate(entry.updatedAt)}
-							</div>
-						</div>
-					</CardContent>
-				</Card>
+				<Item key={entry.id} variant="outline" size="sm">
+					<ItemMedia variant="icon">
+						{entry.type === "receive" || entry.type === "mint" ? (
+							<ArrowDownLeft />
+						) : (
+							<ArrowUpRight />
+						)}
+					</ItemMedia>
+					<ItemContent>
+						<ItemTitle>
+							{getOperationTypeLabel(entry.type)}
+							<Badge variant="secondary">{entry.state}</Badge>
+						</ItemTitle>
+						<ItemDescription className="truncate">{entry.mintUrl}</ItemDescription>
+					</ItemContent>
+					<ItemContent className="flex-none text-right">
+						<ItemTitle className="ml-auto tabular-nums">
+							{entry.type === "receive" || entry.type === "mint" ? "+" : "−"}
+							{formatAmount(entry.amount)} {entry.unit}
+						</ItemTitle>
+						<ItemDescription>{formatDate(entry.updatedAt)}</ItemDescription>
+					</ItemContent>
+				</Item>
 			))}
-		</div>
+			</ItemGroup>
+		</ScrollArea>
 	);
 }
 
@@ -2591,9 +2908,15 @@ function StatusAlert({ status }: { status: NonNullable<StatusState> }) {
 
 function EmptyState({ label }: { label: string }) {
 	return (
-		<Empty className="min-h-24 border p-4">
+		<Empty className="min-h-32 border p-4">
 			<EmptyHeader>
+				<EmptyMedia variant="icon">
+					<Sparkles />
+				</EmptyMedia>
 				<EmptyTitle>{label}</EmptyTitle>
+				<EmptyDescription>
+					This area will update automatically when wallet activity appears.
+				</EmptyDescription>
 			</EmptyHeader>
 		</Empty>
 	);
